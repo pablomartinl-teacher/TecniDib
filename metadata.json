@@ -1,0 +1,6 @@
+{
+  "name": "VektorCAD - Dibujo Técnico & Geometría Métrica",
+  "description": "Aplicación CAD de precisión profesional para dibujo técnico y educación plástica con simulación de dibujo tradicional e instrumental normalizado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

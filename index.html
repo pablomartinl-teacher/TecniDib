@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>VektorCAD - Dibujo Técnico & Geometría Métrica</title>
+    <meta name="description" content="Aplicación CAD de precisión profesional para dibujo técnico y educación plástica con simulación de dibujo tradicional e instrumental normalizado." />
+    <meta property="og:title" content="VektorCAD - Dibujo Técnico & Geometría Métrica" />
+    <meta property="og:description" content="Aplicación CAD de precisión profesional para dibujo técnico y educación plástica con simulación de dibujo tradicional e instrumental normalizado." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+      }
+    </script>
+  </head>
+  <body class="bg-[#121316] text-[#e0e2ec] font-sans antialiased overflow-hidden select-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
