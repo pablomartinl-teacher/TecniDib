@@ -1,81 +1,64 @@
 # VektorCAD — Dibujo Técnico & Geometría Métrica
 
-Aplicación CAD de precisión profesional para dibujo técnico normalizado (UNE / ISO) y educación plástica y visual, con simulación de instrumentos clásicos (regla milimetrada, escuadra a 45º, cartabón a 30º/60º, compás), perspectiva isométrica y diédrica, y exportación a DXF, SVG, PDF (vectorial) y JSON.
+Aplicación CAD de precisión profesional para dibujo técnico normalizado (UNE / ISO) y educación plástica y visual, con simulación de instrumentos clásicos (regla milimetrada, escuadra a 45º, cartabón a 30º/60º, compás), perspectiva isométrica y diédrica, y exportación a DXF, SVG, PDF vectorial y JSON.
 
 ---
 
-## 🚀 Requisitos Previos
+## 🌟 Opciones para Instalar y Ejecutar la Aplicación
 
-Para ejecutar la aplicación en tu ordenador necesitas tener instalado:
-* **Node.js** (versión 18, 20 o 22 LTS recomendada): [Descargar Node.js](https://nodejs.org/)
-* Un gestor de paquetes (incluido automáticamente con Node.js): `npm` (también compatible con `pnpm`, `yarn` o `bun`).
+Tienes **4 opciones diferentes** para instalar y usar VektorCAD según tus preferencias:
 
 ---
 
-## 📥 Instalación y Ejecución Local
+### 🟢 Opción 1: Instalación Directa PWA (Recomendada — Sin instalar nada ni usar consola)
+*No requiere Node.js, Git ni escribir comandos en la terminal.*
 
-### 1. Descomprimir o Clonar el Proyecto
-Abre una terminal o consola de comandos (PowerShell / CMD en Windows, o Terminal en macOS / Linux) y navega hasta la carpeta del proyecto:
-
-```bash
-cd ruta/a/vektorcad
-```
-
-### 2. Instalar las Dependencias
-Ejecuta el siguiente comando para descargar e instalar todas las librerías necesarias:
-
-```bash
-npm install
-```
-*(Si usas Bun, puedes ejecutar `bun install`)*
-
-### 3. Iniciar el Servidor de Desarrollo
-Para arrancar la aplicación en modo desarrollo con recarga rápida:
-
-```bash
-npm run dev
-```
-
-Una vez ejecutado, verás en la terminal un mensaje indicando la dirección local:
-```
-  ➜  Local:   http://localhost:3000/
-```
-
-Abre tu navegador web preferido (Google Chrome, Edge, Firefox, Brave, Safari) e ingresa a:
-👉 **[http://localhost:3000](http://localhost:3000)**
+1. Abre el enlace de la aplicación en **Google Chrome**, **Microsoft Edge** o **Brave**:
+   * En tu PC/Mac: Verás un icono de **"Instalar VektorCAD"** en la barra de direcciones o el botón **"Instalar App"** en la barra superior.
+   * En iPhone/iPad (Safari): Pulsa el botón **Compartir** y selecciona **"Añadir a pantalla de inicio"**.
+   * En Android (Chrome): Pulsa los tres puntos `⋮` y selecciona **"Instalar aplicación"**.
+2. La aplicación se instalará como un programa de escritorio independiente con su propio icono, funcionará **sin conexión a internet (offline)** y guardará tus láminas localmente en tu equipo.
 
 ---
 
-## 📦 Construcción para Producción
-
-Si deseas generar una versión compilada y optimizada lista para alojar en cualquier servidor web (Vercel, Netlify, GitHub Pages, Apache, Nginx):
+### 🐳 Opción 2: Con Docker (Un solo comando, sin instalar Node.js)
+Si tienes **Docker** o **Docker Desktop** instalado:
 
 ```bash
-npm run build
+docker compose up -d
 ```
-
-Los archivos finales estáticos se generarán en la carpeta `dist/`.
-
-Para previsualizar localmente la versión de producción:
+O con Docker directo:
 ```bash
-npm run preview
+docker build -t vektorcad .
+docker run -d -p 3000:80 vektorcad
 ```
+Abre en tu navegador: **[http://localhost:3000](http://localhost:3000)**.
 
 ---
 
-## 🧪 Pruebas Unitarias del Motor Geométrico
+### 💻 Opción 3: Modo Tradicional con Node.js
 
-Puedes ejecutar la suite de pruebas unitarias automatizadas del motor CAD (intersecciones, bisectrices, mediatrices, teorema de Tales, isocírculos, perspectiva isométrica y generador DXF):
+1. Descarga e instala **[Node.js](https://nodejs.org/)** (LTS).
+2. Abre una terminal en la carpeta del proyecto y ejecuta:
+   ```bash
+   npm install
+   npm run dev
+   ```
+3. Accede en tu navegador a: **[http://localhost:3000](http://localhost:3000)**.
 
+---
+
+### ☁️ Opción 4: Despliegue en la Nube con 1 Clic (Gratis)
+Puedes alojar tu propia copia online accesible desde cualquier dispositivo:
+* **Vercel**: Importa el repositorio de GitHub en [vercel.com](https://vercel.com) (detecta Vite automáticamente).
+* **Netlify**: Arrastra la carpeta `dist/` generada tras `npm run build` a [app.netlify.com/drop](https://app.netlify.com/drop).
+* **GitHub Pages**: Sube el código a GitHub y activa GitHub Pages desde `Settings > Pages`.
+
+---
+
+## 🧪 Pruebas Unitarias Geométricas
+
+Puedes verificar el funcionamiento del motor geométrico ejecutando:
 ```bash
 node --test src/cad/geometry.test.ts
 ```
-
----
-
-## 💡 Consejo: Usar como App de Escritorio
-
-Si deseas usarla como una aplicación de escritorio nativa sin barras del navegador:
-1. Abre la aplicación en **Google Chrome** o **Microsoft Edge** (`http://localhost:3000`).
-2. En la barra de direcciones o en el menú de opciones (los tres puntos verticales arriba a la derecha), haz clic en **"Instalar VektorCAD"** o **"Aplicaciones" > "Instalar este sitio como aplicación"**.
-3. Se creará un acceso directo en tu escritorio e iniciará en su propia ventana independiente de alta resolución.

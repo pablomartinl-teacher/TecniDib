@@ -25,6 +25,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
+import { PWAInstallButton } from './PWAInstallButton.tsx';
 
 interface TopBarProps {
   sheetSize: SheetSize;
@@ -367,6 +368,9 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           <span>Paso a Paso</span>
         </button>
+
+        {/* PWA / App Install Button */}
+        <PWAInstallButton />
 
         {/* Study button */}
         <button

@@ -2,6 +2,33 @@
 <html lang="es" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      /* Browser Extension Compatibility Guard: Prevents TypeError when extensions attempt to overwrite window.fetch */
+      (function() {
+        try {
+          var _origFetch = window.fetch ? window.fetch.bind(window) : null;
+          var _customFetch = null;
+          Object.defineProperty(window, 'fetch', {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+              return _customFetch || _origFetch;
+            },
+            set: function(val) {
+              _customFetch = val;
+            }
+          });
+        } catch (_) {}
+
+        window.addEventListener('error', function(event) {
+          if (event.filename && (event.filename.includes('chrome-extension://') || event.filename.includes('moz-extension://'))) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>VektorCAD - Dibujo Técnico & Geometría Métrica</title>
     <meta name="description" content="Aplicación CAD de precisión profesional para dibujo técnico y educación plástica con simulación de dibujo tradicional e instrumental normalizado." />
@@ -9,6 +36,13 @@
     <meta property="og:description" content="Aplicación CAD de precisión profesional para dibujo técnico y educación plástica con simulación de dibujo tradicional e instrumental normalizado." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#121316" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VektorCAD" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
