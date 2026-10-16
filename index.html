@@ -3,25 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      /* Browser Extension Compatibility Guard: Prevents TypeError when extensions attempt to overwrite window.fetch */
+      /* Ensure window.fetch is safely writable as a standard data property (prevents getter-only error without recursion) */
       (function() {
         try {
-          var _origFetch = window.fetch ? window.fetch.bind(window) : null;
-          var _customFetch = null;
-          Object.defineProperty(window, 'fetch', {
-            configurable: true,
-            enumerable: true,
-            get: function() {
-              return _customFetch || _origFetch;
-            },
-            set: function(val) {
-              _customFetch = val;
-            }
-          });
+          if (typeof window !== 'undefined' && window.fetch) {
+            var nativeFetch = window.fetch.bind(window);
+            Object.defineProperty(window, 'fetch', {
+              value: nativeFetch,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          }
         } catch (_) {}
 
         window.addEventListener('error', function(event) {
-          if (event.filename && (event.filename.includes('chrome-extension://') || event.filename.includes('moz-extension://'))) {
+          if (event && event.filename && (event.filename.indexOf('chrome-extension://') !== -1 || event.filename.indexOf('moz-extension://') !== -1)) {
             event.preventDefault();
             event.stopImmediatePropagation();
             return true;

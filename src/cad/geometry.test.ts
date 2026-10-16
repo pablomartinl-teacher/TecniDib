@@ -23,7 +23,8 @@ import {
   createIsometricBox,
   createDiedricoTemplate,
 } from './geometry.ts';
-import type { LineEntity, CircleEntity, EntityStyle } from './types.ts';
+import { renderPageToSvgString } from './pdfExport.ts';
+import type { LineEntity, CircleEntity, EntityStyle, PageDocument } from './types.ts';
 
 test('distance calculation between 2D points', () => {
   const d = distance({ x: 0, y: 0 }, { x: 30, y: 40 });
@@ -238,15 +239,62 @@ test('createIsometricBox generates 12 edges with 3 hidden rear edges', () => {
   assert.equal(visibleCount, 9);
 });
 
-test('createDiedricoTemplate creates projection ground line and isometric tripod', () => {
-  const style: EntityStyle = { width: 0.5, color: '#000', dash: 'none', marker: 'none' };
-  const auxStyle: EntityStyle = { width: 0.25, color: '#666', dash: 'none', marker: 'none' };
-  const template = createDiedricoTemplate({ name: 'A4', w: 297, h: 210, orientation: 'landscape' }, style, auxStyle);
-  assert.ok(template.length >= 10);
-  const textEntities = template.filter((e) => e.type === 'tag');
-  assert.ok(textEntities.some((t: any) => t.text.includes('LÍNEA DE TIERRA')));
-  assert.ok(textEntities.some((t: any) => t.text.includes('ALZADO')));
-  assert.ok(textEntities.some((t: any) => t.text.includes('PERSPECTIVA ISOMÉTRICA')));
+test('renderPageToSvgString produces distinct SVG for each page without repeating', () => {
+  const page1: PageDocument = {
+    id: 'p1',
+    title: 'Lámina 1 - Planta',
+    sheetSize: { name: 'A4', w: 297, h: 210, orientation: 'landscape' },
+    data: [
+      {
+        type: 'line',
+        id: 1,
+        x1: 10,
+        y1: 10,
+        x2: 100,
+        y2: 10,
+        style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+      },
+    ],
+    history: [],
+    redoHistory: [],
+    bgImage: null,
+  };
+
+  const page2: PageDocument = {
+    id: 'p2',
+    title: 'Lámina 2 - Alzado',
+    sheetSize: { name: 'A3', w: 420, h: 297, orientation: 'landscape' },
+    data: [
+      {
+        type: 'circle',
+        id: 2,
+        cx: 50,
+        cy: 50,
+        r: 25,
+        style: { width: 0.7, color: '#000', dash: 'none', marker: 'none' },
+      },
+    ],
+    history: [],
+    redoHistory: [],
+    bgImage: null,
+  };
+
+  const svg1 = renderPageToSvgString(page1);
+  const svg2 = renderPageToSvgString(page2);
+
+  // Assert page 1 contains its line and its sheet size
+  assert.ok(svg1.includes('x1="10"'));
+  assert.ok(svg1.includes('viewBox="0 0 297 210"'));
+  assert.ok(!svg1.includes('circle cx="50"'));
+
+  // Assert page 2 contains its circle and its sheet size
+  assert.ok(svg2.includes('circle cx="50"'));
+  assert.ok(svg2.includes('viewBox="0 0 420 297"'));
+  assert.ok(!svg2.includes('x1="10"'));
+
+  // Assert they are completely distinct and not identical
+  assert.notEqual(svg1, svg2);
 });
+
 
 

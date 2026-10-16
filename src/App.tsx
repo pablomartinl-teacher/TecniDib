@@ -38,6 +38,7 @@ import {
   calculateIsocircle,
   createIsometricBox,
   createDiedricoTemplate,
+  smoothPath,
 } from './cad/geometry.ts';
 import {
   createDefaultProject,
@@ -63,6 +64,7 @@ import { ArchitectureStudyModal } from './components/ArchitectureStudyModal.tsx'
 import { InspectorPanel } from './components/InspectorPanel.tsx';
 import { CommandBar } from './components/CommandBar.tsx';
 import { PlayerBar } from './components/PlayerBar.tsx';
+import { PageManagerModal } from './components/PageManagerModal.tsx';
 
 export default function App() {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -136,6 +138,7 @@ export default function App() {
   const [isRichTextOpen, setIsRichTextOpen] = useState<boolean>(false);
   const [editingTextEntity, setEditingTextEntity] = useState<TextEntity | null>(null);
   const [isStudyOpen, setIsStudyOpen] = useState<boolean>(false);
+  const [isPageManagerOpen, setIsPageManagerOpen] = useState<boolean>(false);
 
   // Layers & Didactic Construction State
   const DEFAULT_LAYERS: LayerConfig[] = [
@@ -401,6 +404,42 @@ export default function App() {
         return;
       }
 
+      // Toggle magnet / snap when pressing Control key
+      if (e.key === 'Control' && !e.repeat) {
+        setSnapEnabled((prev) => {
+          const next = !prev;
+          setSaveStatus(next ? '🧲 Imán: Activado' : '⚡ Imán: Desactivado');
+          setTimeout(() => setSaveStatus(''), 1500);
+          return next;
+        });
+        return;
+      }
+
+      // Save file with Ctrl+S (choose filename)
+      if (e.ctrlKey && e.code === 'KeyS') {
+        e.preventDefault();
+        handleSaveToFile();
+        return;
+      }
+
+      // Complete Spline curve on Enter
+      if (e.key === 'Enter' && currentTool === 'curve' && curvePoints.length >= 2) {
+        e.preventDefault();
+        pushState([
+          ...entities,
+          {
+            type: 'curve',
+            id: Date.now(),
+            points: [...curvePoints],
+            style: { ...currentStyle },
+          },
+        ]);
+        setSaveStatus('〰️ Spline creada');
+        setTimeout(() => setSaveStatus(''), 2000);
+        cancelAction();
+        return;
+      }
+
       // Escape key cancels action or closes modals
       if (e.key === 'Escape') {
         if (isCropOpen) setIsCropOpen(false);
@@ -408,6 +447,7 @@ export default function App() {
         else if (isEditOpen) setIsEditOpen(false);
         else if (isRichTextOpen) setIsRichTextOpen(false);
         else if (isStudyOpen) setIsStudyOpen(false);
+        else if (isPageManagerOpen) setIsPageManagerOpen(false);
         else cancelAction();
         return;
       }
@@ -1084,6 +1124,55 @@ export default function App() {
       return;
     }
 
+    // Spline Curve Tool (Click to add points, click near last point or double click to complete)
+    if (currentTool === 'curve') {
+      const last = curvePoints[curvePoints.length - 1];
+      if (last && Math.hypot(pos.x - last.x, pos.y - last.y) < 2) {
+        if (curvePoints.length >= 2) {
+          pushState([
+            ...entities,
+            {
+              type: 'curve',
+              id: Date.now(),
+              points: [...curvePoints],
+              style: { ...currentStyle },
+            },
+          ]);
+          setSaveStatus('〰️ Spline finalizada');
+          setTimeout(() => setSaveStatus(''), 2000);
+        }
+        cancelAction();
+        return;
+      }
+      setCurvePoints((prev) => [...prev, pos]);
+      setIsDrawing(true);
+      setStep(1);
+      return;
+    }
+
+    // Hatch / Filled Region Tool
+    if (currentTool === 'fill') {
+      if (curvePoints.length > 2 && Math.hypot(pos.x - curvePoints[0].x, pos.y - curvePoints[0].y) < 4) {
+        pushState([
+          ...entities,
+          {
+            type: 'fill',
+            id: Date.now(),
+            points: [...curvePoints],
+            style: { ...currentStyle },
+          },
+        ]);
+        setSaveStatus('🎨 Región rellenada');
+        setTimeout(() => setSaveStatus(''), 2000);
+        cancelAction();
+        return;
+      }
+      setCurvePoints((prev) => [...prev, pos]);
+      setIsDrawing(true);
+      setStep(1);
+      return;
+    }
+
     // Constructive drawing tools: Line, Measure, Circle, Polygon, Arc, Parallel, Perpendicular, Angle, Isocircle, Isobox
     if (['parallel', 'perpendicular', 'line_angle'].includes(currentTool) && !referenceLine) {
       const hit = getHitEntity(pos, entities, 6);
@@ -1277,57 +1366,6 @@ export default function App() {
         },
       ]);
       cancelAction();
-    }
-
-    // Spline curve
-    if (currentTool === 'curve') {
-      if (step === 0) {
-        setCurvePoints([pos]);
-        setStep(1);
-        setIsDrawing(true);
-      } else {
-        const last = curvePoints[curvePoints.length - 1];
-        if (last && Math.hypot(pos.x - last.x, pos.y - last.y) < 3) {
-          // Double click near last point completes the curve
-          pushState([
-            ...entities,
-            {
-              type: 'curve',
-              id: Date.now(),
-              points: [...curvePoints],
-              style: { ...currentStyle },
-            },
-          ]);
-          cancelAction();
-        } else {
-          setCurvePoints((prev) => [...prev, pos]);
-        }
-      }
-    }
-
-    // Hatch Fill
-    if (currentTool === 'fill') {
-      if (step === 0) {
-        setCurvePoints([pos]);
-        setStep(1);
-        setIsDrawing(true);
-      } else {
-        if (curvePoints.length > 2 && Math.hypot(pos.x - curvePoints[0].x, pos.y - curvePoints[0].y) < 5) {
-          // Closed polygon loop
-          pushState([
-            ...entities,
-            {
-              type: 'fill',
-              id: Date.now(),
-              points: [...curvePoints],
-              style: { ...currentStyle },
-            },
-          ]);
-          cancelAction();
-        } else {
-          setCurvePoints((prev) => [...prev, pos]);
-        }
-      }
     }
   };
 
@@ -1568,8 +1606,19 @@ export default function App() {
         `;
       }
     } else if (currentTool === 'curve' && curvePoints.length > 0) {
-      const pts = curvePoints.map((p) => `${p.x},${p.y}`).join(' ');
-      content = `<polyline points="${pts} ${pos.x},${pos.y}" fill="none" stroke="${col}" stroke-width="0.35" stroke-dasharray="2,2"/>`;
+      const allPts = [...curvePoints, pos];
+      const splineD = smoothPath(allPts);
+      const ptsMarks = curvePoints
+        .map(
+          (p, idx) =>
+            `<circle cx="${p.x}" cy="${p.y}" r="1.4" fill="#38bdf8" stroke="#ffffff" stroke-width="0.4"/><text x="${p.x + 2}" y="${p.y - 2}" fill="#38bdf8" font-size="2.6" font-family="monospace">P${idx + 1}</text>`
+        )
+        .join('');
+      content = `
+        <path d="${splineD}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-dasharray="2,2"/>
+        ${ptsMarks}
+        <circle cx="${pos.x}" cy="${pos.y}" r="1.8" fill="none" stroke="#38bdf8" stroke-width="0.6"/>
+      `;
     } else if (currentTool === 'fill' && curvePoints.length > 0) {
       const pts = curvePoints.map((p) => `${p.x},${p.y}`).join(' ');
       content = `<polygon points="${pts} ${pos.x},${pos.y}" fill="rgba(2, 132, 199, 0.15)" stroke="${col}" stroke-width="0.35" stroke-dasharray="2,2"/>`;
@@ -1728,6 +1777,40 @@ export default function App() {
   };
 
   const handleDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (currentTool === 'curve') {
+      if (curvePoints.length >= 2) {
+        pushState([
+          ...entities,
+          {
+            type: 'curve',
+            id: Date.now(),
+            points: [...curvePoints],
+            style: { ...currentStyle },
+          },
+        ]);
+        setSaveStatus('〰️ Spline finalizada');
+        setTimeout(() => setSaveStatus(''), 2000);
+      }
+      cancelAction();
+      return;
+    }
+    if (currentTool === 'fill') {
+      if (curvePoints.length >= 3) {
+        pushState([
+          ...entities,
+          {
+            type: 'fill',
+            id: Date.now(),
+            points: [...curvePoints],
+            style: { ...currentStyle },
+          },
+        ]);
+        setSaveStatus('🎨 Región rellenada');
+        setTimeout(() => setSaveStatus(''), 2000);
+      }
+      cancelAction();
+      return;
+    }
     const pos = getCanvasCoords(e);
     const hit = getHitEntity(pos, entities, 6);
     if (hit && hit.type === 'text') {
@@ -1882,6 +1965,64 @@ export default function App() {
     return 'crosshair';
   };
 
+  // File saving and exporting with custom filename choice
+  const handleSaveToFile = () => {
+    const defaultName = project.projectName || 'Proyecto_VektorCAD';
+    const chosenName = prompt('Introduce el nombre del archivo para guardar el proyecto:', defaultName);
+    if (chosenName === null) return;
+    const cleanName = chosenName.trim() || defaultName;
+    const updated = { ...project, projectName: cleanName };
+    setProject(updated);
+    downloadProjectFile(updated, cleanName);
+    setSaveStatus(`💾 Guardado como ${cleanName}.json`);
+    setTimeout(() => setSaveStatus(''), 2500);
+  };
+
+  const handleExportPDF = () => {
+    const defaultName = project.projectName || 'Lamina_CAD';
+    const chosenName = prompt('Nombre del archivo PDF a exportar:', defaultName);
+    if (chosenName === null) return;
+    const fileName = chosenName.trim() || defaultName;
+    const allPages =
+      project.pages.length > 1 &&
+      confirm(
+        '¿Deseas exportar todas las láminas en un único PDF? (Aceptar: Todas las láminas, Cancelar: Solo la actual)'
+      );
+    exportProjectToPDF(project.pages, currentPageIndex, svgRef.current, {
+      fileName,
+      allPages,
+    });
+    setSaveStatus(`📑 PDF "${fileName}.pdf" descargado`);
+    setTimeout(() => setSaveStatus(''), 2500);
+  };
+
+  const handleExportSVG = () => {
+    const defaultName = project.projectName || 'Lamina_CAD';
+    const chosenName = prompt('Nombre del archivo SVG a exportar:', defaultName);
+    if (chosenName === null) return;
+    const fileName = chosenName.trim() || defaultName;
+    exportToSVG(svgRef.current, fileName, currentPage);
+    setSaveStatus(`🎨 SVG "${fileName}.svg" descargado`);
+    setTimeout(() => setSaveStatus(''), 2500);
+  };
+
+  const handleExportDXF = () => {
+    const defaultName = project.projectName || 'Lamina_CAD';
+    const chosenName = prompt('Nombre del archivo DXF (AutoCAD) a exportar:', defaultName);
+    if (chosenName === null) return;
+    const fileName = chosenName.trim() || defaultName;
+    const dxf = generateDxfString(currentPage.sheetSize, allEntities);
+    const blob = new Blob([dxf], { type: 'application/dxf;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace(/\.dxf$/i, '')}.dxf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSaveStatus(`📐 DXF "${fileName}.dxf" descargado`);
+    setTimeout(() => setSaveStatus(''), 2500);
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#121316] text-neutral-200 font-sans">
       {/* 1. Header Navigation Bar */}
@@ -1914,6 +2055,7 @@ export default function App() {
         onAddPage={handleAddPage}
         onMovePage={handleMovePage}
         onDeletePage={handleDeletePage}
+        onOpenPageManager={() => setIsPageManagerOpen(true)}
         zoomLevel={zoomLevel}
         onZoomChange={(delta) => setZoomLevel((z) => Math.max(20, Math.min(600, z + delta)))}
         onResetZoom={() => setZoomLevel(95)}
@@ -1925,7 +2067,7 @@ export default function App() {
         onOpenMarginsModal={() => setIsMarginsOpen(true)}
         onOpenCropModal={handleOpenCropperFile}
         onImportPDFBase={handleImportPDFBase}
-        onSaveToFile={() => downloadProjectFile(project, project.projectName)}
+        onSaveToFile={handleSaveToFile}
         onLoadFromFile={(e) => {
           const file = e.target.files?.[0];
           if (!file) return;
@@ -1943,25 +2085,9 @@ export default function App() {
           reader.readAsText(file);
           e.target.value = '';
         }}
-        onExportPDF={() => {
-          exportProjectToPDF(project.pages, currentPageIndex, svgRef.current, {
-            fileName: project.projectName,
-            allPages: project.pages.length > 1 && confirm('¿Deseas exportar todas las láminas en un único PDF? (Aceptar: Todas las páginas, Cancelar: Solo la actual)'),
-          });
-        }}
-        onExportSVG={() => exportToSVG(svgRef.current, project.projectName)}
-        onExportDXF={() => {
-          const dxf = generateDxfString(currentPage.sheetSize, allEntities);
-          const blob = new Blob([dxf], { type: 'application/dxf;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${project.projectName}.dxf`;
-          a.click();
-          URL.revokeObjectURL(url);
-          setSaveStatus('📐 Archivo DXF descargado');
-          setTimeout(() => setSaveStatus(''), 2500);
-        }}
+        onExportPDF={handleExportPDF}
+        onExportSVG={handleExportSVG}
+        onExportDXF={handleExportDXF}
         onNewCanvas={() => {
           if (confirm('¿Crear nuevo proyecto en blanco?')) {
             const fresh = createDefaultProject();
@@ -2149,12 +2275,18 @@ export default function App() {
             ? step === 0 ? 'Caja Isométrica: Clic en el vértice base origen.' : 'Caja Isométrica: Mueve para dimensionar o teclea arista mm + Enter.'
             : currentTool === 'diedrico_template'
             ? 'Lámina Vistas + 3D: Clic para estampar plantilla normalizada con Línea de Tierra (LT) y trípode axonométrico.'
+            : currentTool === 'curve'
+            ? 'Spline / Curva: Haz clic para añadir puntos de control. Doble clic o Enter para finalizar.'
+            : currentTool === 'fill'
+            ? 'Trama / Relleno: Haz clic para añadir vértices del contorno. Doble clic o clic en el inicio para cerrar y rellenar.'
             : ''
         }
         onExecuteCommand={(cmdStr) => {
           const trimmed = cmdStr.trim().toUpperCase();
           if (trimmed === 'L' || trimmed === 'LINEA' || trimmed === 'LINE') setCurrentTool('line');
           else if (trimmed === 'C' || trimmed === 'CIRCULO' || trimmed === 'CIRCLE') setCurrentTool('circle');
+          else if (trimmed === 'S' || trimmed === 'SPLINE' || trimmed === 'CURVA') setCurrentTool('curve');
+          else if (trimmed === 'F' || trimmed === 'FILL' || trimmed === 'RELLENO') setCurrentTool('fill');
           else if (trimmed === 'M' || trimmed === 'COTA' || trimmed === 'ACOTAR') setCurrentTool('measure');
           else if (trimmed === 'MED' || trimmed === 'MEDIATRIZ') setCurrentTool('mediatriz');
           else if (trimmed === 'BIS' || trimmed === 'BISECTRIZ') setCurrentTool('bisectriz');
@@ -2166,7 +2298,12 @@ export default function App() {
           else if (trimmed === 'I' || trimmed === 'ISOCIRCULO' || trimmed === 'ISOCIRCLE') setCurrentTool('isocircle');
           else if (trimmed === 'J' || trimmed === 'CAJA' || trimmed === 'BOX') setCurrentTool('isobox');
           else if (trimmed === 'D' || trimmed === 'DIEDRICO' || trimmed === 'VISTAS') setCurrentTool('diedrico_template');
-          else if (trimmed === 'ISO' || trimmed === 'ISOMETRICA') {
+          else if (trimmed === 'PAGES' || trimmed === 'LAMINAS' || trimmed === 'PAGINAS') setIsPageManagerOpen(true);
+          else if (trimmed === 'SNAP' || trimmed === 'IMAN') {
+            setSnapEnabled((p) => !p);
+            setSaveStatus(snapEnabled ? '⚡ Imán Desactivado' : '🧲 Imán Activado');
+            setTimeout(() => setSaveStatus(''), 1500);
+          } else if (trimmed === 'ISO' || trimmed === 'ISOMETRICA') {
             setGridMode('isometric');
             setGridSnapEnabled(true);
             setSaveStatus('🔺 Modo Rejilla Isométrica 30º-150º activado');
@@ -2180,14 +2317,9 @@ export default function App() {
             setSaveStatus('🔄 Isoplano cambiado');
             setTimeout(() => setSaveStatus(''), 1500);
           } else if (trimmed === 'DXF') {
-            const dxf = generateDxfString(currentPage.sheetSize, allEntities);
-            const blob = new Blob([dxf], { type: 'application/dxf;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${project.projectName}.dxf`;
-            a.click();
-            URL.revokeObjectURL(url);
+            handleExportDXF();
+          } else if (trimmed === 'SAVE' || trimmed === 'GUARDAR') {
+            handleSaveToFile();
           } else if (trimmed === 'CLEAR') {
             if (confirm('¿Vaciar lámina?')) pushState([]);
           }
@@ -2250,6 +2382,40 @@ export default function App() {
       <ArchitectureStudyModal
         isOpen={isStudyOpen}
         onClose={() => setIsStudyOpen(false)}
+      />
+
+      <PageManagerModal
+        isOpen={isPageManagerOpen}
+        onClose={() => setIsPageManagerOpen(false)}
+        pages={project.pages}
+        currentPageIndex={currentPageIndex}
+        onSelectPage={(idx) => {
+          cancelAction();
+          setCurrentPageIndex(idx);
+        }}
+        onReorderPages={(newPages, newActiveIndex) => {
+          setProject((prev) => ({ ...prev, pages: newPages }));
+          setCurrentPageIndex(newActiveIndex);
+          cancelAction();
+          setSaveStatus('📑 Orden de láminas actualizado');
+          setTimeout(() => setSaveStatus(''), 2000);
+        }}
+        onAddPage={handleAddPage}
+        onDeletePage={(idx) => {
+          if (project.pages.length <= 1) return;
+          if (confirm(`¿Eliminar la ${project.pages[idx].title || `Lámina ${idx + 1}`}?`)) {
+            setProject((prev) => {
+              const newPages = prev.pages.filter((_, i) => i !== idx);
+              return { ...prev, pages: newPages };
+            });
+            setCurrentPageIndex((prev) => {
+              if (prev === idx) return Math.max(0, idx - 1);
+              if (prev > idx) return prev - 1;
+              return prev;
+            });
+            cancelAction();
+          }
+        }}
       />
     </div>
   );

@@ -510,6 +510,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
 
       case 'image':
+        if (!ent.href || typeof ent.href !== 'string' || ent.href.trim() === '' || ent.href === 'null') {
+          return null;
+        }
         return (
           <g key={ent.id}>
             <image
@@ -519,6 +522,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               height={ent.height}
               href={ent.href}
               opacity={isSelected ? 0.75 : 1}
+              onError={(e) => {
+                (e.currentTarget as any).style.display = 'none';
+              }}
             />
             {isSelected && (
               <rect
@@ -734,7 +740,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           )}
 
           {/* Background PDF/Exercise Image if loaded */}
-          {bgImage && (
+          {bgImage && typeof bgImage === 'string' && bgImage.trim() !== '' && bgImage !== 'null' && (
             <image
               id="bg-pdf-image"
               x="0"
@@ -745,6 +751,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               preserveAspectRatio="xMidYMid meet"
               pointerEvents="none"
               opacity="0.85"
+              onError={(e) => {
+                (e.currentTarget as any).style.display = 'none';
+              }}
             />
           )}
 

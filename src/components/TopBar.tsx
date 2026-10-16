@@ -23,6 +23,7 @@ import {
   FolderOpen,
   Save,
   CheckCircle2,
+  Layers,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
@@ -37,6 +38,7 @@ interface TopBarProps {
   onAddPage: () => void;
   onMovePage: () => void;
   onDeletePage: () => void;
+  onOpenPageManager: () => void;
   zoomLevel: number;
   onZoomChange: (delta: number) => void;
   onResetZoom: () => void;
@@ -74,6 +76,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onAddPage,
   onMovePage,
   onDeletePage,
+  onOpenPageManager,
   zoomLevel,
   onZoomChange,
   onResetZoom,
@@ -179,6 +182,13 @@ export const TopBar: React.FC<TopBarProps> = ({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
+          <button
+            onClick={onOpenPageManager}
+            className="p-1 rounded text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 transition"
+            title="Reorganizar y gestionar orden de las láminas"
+          >
+            <Layers className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {/* Zoom controls */}
