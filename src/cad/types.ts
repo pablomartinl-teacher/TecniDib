@@ -17,6 +17,7 @@ export type ToolType =
   | 'fill'
   | 'symbol'
   | 'point'
+  | 'rect'
   | 'text'
   | 'tag'
   | 'eraser'
@@ -158,6 +159,7 @@ export interface TextEntity extends BaseEntity {
   w: number;
   h?: number;
   textHtml: string;
+  text?: string;
   fontSize: number;
   align?: 'left' | 'center' | 'right' | 'justify';
 }
@@ -228,6 +230,7 @@ export interface CadProject {
   pages: PageDocument[];
   currentPageIndex: number;
   globalSheetSize: SheetSize;
+  layers?: LayerConfig[];
   createdAt: string;
   updatedAt: string;
 }

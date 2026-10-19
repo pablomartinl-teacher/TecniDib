@@ -44,6 +44,7 @@ interface CadCanvasProps {
   hiddenLayers?: Set<string>;
   cursorPos?: Point2D;
   showRulers?: boolean;
+  keyboardInput?: string;
   onPointerDown: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerMove: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerUp: (e: React.PointerEvent<SVGSVGElement>) => void;
@@ -73,6 +74,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   hiddenLayers,
   cursorPos = { x: 0, y: 0 },
   showRulers = true,
+  keyboardInput = '',
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -445,34 +447,212 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
 
       case 'text': {
         const fontSize = ent.fontSize || 5;
+        const boxW = typeof ent.w === 'number' && ent.w > 0 ? ent.w : 60;
+        const boxH = typeof ent.h === 'number' && ent.h > 0 ? ent.h : 25;
+        const handleW = 3.6;
+        const handleH = 3.6;
+        const halfW = handleW / 2;
+        const halfH = handleH / 2;
+
         return (
-          <g key={ent.id}>
-            <foreignObject x={ent.x} y={ent.y} width={ent.w} height={ent.h || 200}>
+          <g key={ent.id} className="group">
+            {/* Clickable background hit area so selecting and moving text box always succeeds */}
+            <rect
+              x={ent.x}
+              y={ent.y}
+              width={boxW}
+              height={boxH}
+              fill="transparent"
+              stroke="none"
+              style={{ cursor: isSelected ? 'move' : 'pointer' }}
+            />
+
+            <foreignObject
+              x={ent.x}
+              y={ent.y}
+              width={boxW}
+              height={boxH}
+              style={{ overflow: 'visible' }}
+            >
               <div
+                id={`cad-text-${ent.id}`}
                 style={{
                   fontFamily: 'sans-serif',
                   fontSize: `${fontSize}px`,
                   color: strokeColor,
                   width: '100%',
-                  height: '100%',
+                  minHeight: '100%',
                   textAlign: ent.align || 'left',
                   wordWrap: 'break-word',
+                  whiteSpace: 'pre-wrap',
+                  margin: 0,
+                  padding: '1px 2px',
+                  boxSizing: 'border-box',
                   pointerEvents: 'none',
+                  lineHeight: 1.25,
                 }}
-                dangerouslySetInnerHTML={{ __html: ent.textHtml || '' }}
-              />
+              >
+                <style>{`#cad-text-${ent.id} p, #cad-text-${ent.id} div, #cad-text-${ent.id} span { margin: 0; padding: 0; line-height: 1.25; }`}</style>
+                <div dangerouslySetInnerHTML={{ __html: ent.textHtml || ent.text || '' }} />
+              </div>
             </foreignObject>
+
+            {/* Bounding box and resize handles when selected */}
             {isSelected && (
-              <rect
-                x={ent.x}
-                y={ent.y}
-                width={ent.w}
-                height={ent.h || 25}
-                fill="none"
-                stroke="#0284c7"
-                strokeWidth={0.4}
-                strokeDasharray="2,2"
-              />
+              <g>
+                {/* Bounding box dashed outline */}
+                <rect
+                  x={ent.x}
+                  y={ent.y}
+                  width={boxW}
+                  height={boxH}
+                  fill="rgba(2, 132, 199, 0.06)"
+                  stroke="#0284c7"
+                  strokeWidth={0.4}
+                  strokeDasharray="2,2"
+                  pointerEvents="none"
+                />
+
+                {/* Horizontal resize handles (Left and Right - width adjustment) */}
+                <rect
+                  x={ent.x - halfW}
+                  y={ent.y + boxH / 2 - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ew-resize' }}
+                  data-text-handle="w"
+                  data-text-id={ent.id}
+                >
+                  <title>Tirador horizontal izquierdo: arrastrar para ajustar ancho</title>
+                </rect>
+                <rect
+                  x={ent.x + boxW - halfW}
+                  y={ent.y + boxH / 2 - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ew-resize' }}
+                  data-text-handle="e"
+                  data-text-id={ent.id}
+                >
+                  <title>Tirador horizontal derecho: arrastrar para ajustar ancho</title>
+                </rect>
+
+                {/* Vertical resize handles (Top and Bottom - height adjustment) */}
+                <rect
+                  x={ent.x + boxW / 2 - halfW}
+                  y={ent.y - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ns-resize' }}
+                  data-text-handle="n"
+                  data-text-id={ent.id}
+                >
+                  <title>Tirador vertical superior: arrastrar para ajustar alto</title>
+                </rect>
+                <rect
+                  x={ent.x + boxW / 2 - halfW}
+                  y={ent.y + boxH - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ns-resize' }}
+                  data-text-handle="s"
+                  data-text-id={ent.id}
+                >
+                  <title>Tirador vertical inferior: arrastrar para ajustar alto</title>
+                </rect>
+
+                {/* Corner resize handles (diagonal adjustment) */}
+                <rect
+                  x={ent.x - halfW}
+                  y={ent.y - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nwse-resize' }}
+                  data-text-handle="nw"
+                  data-text-id={ent.id}
+                >
+                  <title>Esquina superior izquierda</title>
+                </rect>
+                <rect
+                  x={ent.x + boxW - halfW}
+                  y={ent.y - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nesw-resize' }}
+                  data-text-handle="ne"
+                  data-text-id={ent.id}
+                >
+                  <title>Esquina superior derecha</title>
+                </rect>
+                <rect
+                  x={ent.x - halfW}
+                  y={ent.y + boxH - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nesw-resize' }}
+                  data-text-handle="sw"
+                  data-text-id={ent.id}
+                >
+                  <title>Esquina inferior izquierda</title>
+                </rect>
+                <rect
+                  x={ent.x + boxW - halfW}
+                  y={ent.y + boxH - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nwse-resize' }}
+                  data-text-handle="se"
+                  data-text-id={ent.id}
+                >
+                  <title>Esquina inferior derecha</title>
+                </rect>
+
+                {/* Live dimension badge */}
+                <text
+                  x={ent.x + boxW / 2}
+                  y={ent.y - 2.5}
+                  fill="#0284c7"
+                  fontSize={2.5}
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  pointerEvents="none"
+                >
+                  {`${boxW.toFixed(1)} × ${boxH.toFixed(1)} mm`}
+                </text>
+              </g>
             )}
           </g>
         );
@@ -857,6 +1037,47 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               </text>
             </g>
           )}
+
+          {/* Live Keyboard Measure Input HUD */}
+          {keyboardInput !== '' && (() => {
+            const isPolar = keyboardInput.includes('<');
+            const displayText = isPolar
+              ? `📐 ${keyboardInput.split('<')[0]} mm ∠ ${keyboardInput.split('<')[1] || ''}º ↵`
+              : `📏 ${keyboardInput} mm ↵`;
+            const badgeW = Math.max(38, displayText.length * 2.2 + 12);
+            const badgeX = Math.min(sheetSize.w - badgeW - 4, Math.max(4, cursorPos.x + 3));
+            const badgeY = Math.max(8, cursorPos.y - 8);
+
+            return (
+              <g pointerEvents="none" transform={`translate(${badgeX}, ${badgeY})`}>
+                <rect
+                  x="0"
+                  y="0"
+                  width={badgeW}
+                  height="7.2"
+                  rx="1.4"
+                  fill="#0f172a"
+                  stroke="#38bdf8"
+                  strokeWidth="0.45"
+                  filter="drop-shadow(0px 2px 4px rgba(0,0,0,0.6))"
+                />
+                <text
+                  x="3"
+                  y="5.1"
+                  fill="#f8fafc"
+                  fontSize="3.2"
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                >
+                  {isPolar ? (
+                    <>📐 <tspan fill="#38bdf8">{keyboardInput.split('<')[0]}</tspan> mm ∠ <tspan fill="#f59e0b">{keyboardInput.split('<')[1] || ''}º</tspan> ↵</>
+                  ) : (
+                    <>📏 <tspan fill="#38bdf8">{keyboardInput}</tspan> mm ↵</>
+                  )}
+                </text>
+              </g>
+            );
+          })()}
         </svg>
       </div>
     </main>

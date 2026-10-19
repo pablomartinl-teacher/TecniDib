@@ -13,6 +13,7 @@ import {
   ToolType,
   EntityStyle,
   LineEntity,
+  RectEntity,
   SnapPoint,
   TextEntity,
   ImageEntity,
@@ -139,6 +140,19 @@ export default function App() {
   const [editingTextEntity, setEditingTextEntity] = useState<TextEntity | null>(null);
   const [isStudyOpen, setIsStudyOpen] = useState<boolean>(false);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState<boolean>(false);
+
+  // Text Box Handle Resize State (vertical & horizontal)
+  interface TextResizeState {
+    entityId: number;
+    handle: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    origW: number;
+    origH: number;
+  }
+  const [textResize, setTextResize] = useState<TextResizeState | null>(null);
 
   // Layers & Didactic Construction State
   const DEFAULT_LAYERS: LayerConfig[] = [
@@ -267,6 +281,7 @@ export default function App() {
     setHasClonedInDrag(false);
     setActiveAlignX(null);
     setActiveAlignY(null);
+    setTextResize(null);
   };
 
   // Convert client mouse/touch to SVG mm coordinates with snapping
@@ -440,8 +455,14 @@ export default function App() {
         return;
       }
 
-      // Escape key cancels action or closes modals
+      // Escape key cancels action, clears keyboard input, or closes modals
       if (e.key === 'Escape') {
+        if (keyboardInput !== '') {
+          setKeyboardInput('');
+          setSaveStatus('Medida cancelada');
+          setTimeout(() => setSaveStatus(''), 1000);
+          return;
+        }
         if (isCropOpen) setIsCropOpen(false);
         else if (isMarginsOpen) setIsMarginsOpen(false);
         else if (isEditOpen) setIsEditOpen(false);
@@ -452,8 +473,47 @@ export default function App() {
         return;
       }
 
-      // Delete selected entities
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEntities.length > 0) {
+      // Direct numeric keyboard measure input (e.g. 50, 12.5, 80,50, 50<45 + Enter)
+      const isMeasurableTool = [
+        'line',
+        'rect',
+        'circle',
+        'polygon',
+        'arc',
+        'measure',
+        'parallel',
+        'perpendicular',
+        'line_angle',
+        'isocircle',
+        'isobox',
+        'tales',
+        'tape_measure',
+        'mediatriz',
+        'bisectriz',
+      ].includes(currentTool);
+
+      if (isMeasurableTool) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (keyboardInput !== '') {
+            applyKeyboardMeasure();
+          }
+          return;
+        }
+        if (e.key === 'Backspace' && keyboardInput.length > 0) {
+          e.preventDefault();
+          setKeyboardInput((prev) => prev.slice(0, -1));
+          return;
+        }
+        if (/^[0-9.,<xX\-]$/.test(e.key)) {
+          e.preventDefault();
+          setKeyboardInput((prev) => prev + e.key);
+          return;
+        }
+      }
+
+      // Delete selected entities (only if not typing a dimension)
+      if (keyboardInput === '' && (e.key === 'Delete' || e.key === 'Backspace') && selectedEntities.length > 0) {
         e.preventDefault();
         const selectedIds = new Set(selectedEntities.map((s) => s.id));
         const remaining = entities.filter((ent) => !selectedIds.has(ent.id));
@@ -471,24 +531,8 @@ export default function App() {
         return;
       }
 
-      // Direct numeric keyboard measure input (e.g. 50 + Enter)
-      if (isDrawing && ['line', 'measure', 'circle', 'polygon', 'arc', 'parallel', 'perpendicular', 'line_angle', 'isocircle', 'isobox'].includes(currentTool)) {
-        if (/^[0-9.]$/.test(e.key)) {
-          setKeyboardInput((prev) => prev + e.key);
-          return;
-        }
-        if (e.key === 'Backspace' && keyboardInput.length > 0) {
-          setKeyboardInput((prev) => prev.slice(0, -1));
-          return;
-        }
-        if (e.key === 'Enter' && keyboardInput !== '') {
-          applyKeyboardMeasure();
-          return;
-        }
-      }
-
-      // Tool shortcut keys
-      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.code.startsWith('Key')) {
+      // Tool shortcut keys (only if not currently typing a numeric measurement)
+      if (keyboardInput === '' && !e.ctrlKey && !e.altKey && !e.metaKey && e.code.startsWith('Key')) {
         const char = e.code.replace('Key', '').toLowerCase();
         const toolMap: Record<string, ToolType> = {
           v: 'cursor',
@@ -546,32 +590,198 @@ export default function App() {
     pushState,
   ]);
 
-  // Apply keyboard dimension when user presses Enter
-  const applyKeyboardMeasure = () => {
-    const val = parseFloat(keyboardInput);
-    if (isNaN(val) || val <= 0 || !p1) {
+  // Keep drawStateRef synchronized on every render to eliminate stale closure bugs
+  const drawStateRef = useRef({
+    coords,
+    p1,
+    p2,
+    step,
+    currentTool,
+    currentStyle,
+    orthoMode,
+    gridMode,
+    isoplane,
+    referenceLine,
+    customAngle,
+    polySides,
+    entities,
+    activeLayerId,
+    keyboardInput,
+    isDrawing,
+    arcStartAngle,
+    arcCurrentAngle,
+    arcSweepAngle,
+  });
+
+  useEffect(() => {
+    drawStateRef.current = {
+      coords,
+      p1,
+      p2,
+      step,
+      currentTool,
+      currentStyle,
+      orthoMode,
+      gridMode,
+      isoplane,
+      referenceLine,
+      customAngle,
+      polySides,
+      entities,
+      activeLayerId,
+      keyboardInput,
+      isDrawing,
+      arcStartAngle,
+      arcCurrentAngle,
+      arcSweepAngle,
+    };
+  });
+
+  // Apply keyboard dimension when user presses Enter or executes numeric command
+  const applyKeyboardMeasure = (explicitVal?: number | string, explicitCoords?: Point2D) => {
+    const state = drawStateRef.current;
+    const rawInput = (
+      explicitVal !== undefined ? explicitVal.toString() : keyboardInput || state.keyboardInput
+    ).trim();
+
+    if (!rawInput) {
+      setKeyboardInput('');
+      return;
+    }
+
+    // 1. Check for polar angle syntax: e.g. "50<45" or "100<-30" (distance < angle in degrees)
+    let isPolar = false;
+    let polarDist = 0;
+    let polarAngle = 0;
+    if (rawInput.includes('<')) {
+      const parts = rawInput.split('<');
+      const d = parseFloat(parts[0].replace(',', '.'));
+      const a = parseFloat(parts[1].replace(',', '.'));
+      if (!isNaN(d) && !isNaN(a)) {
+        isPolar = true;
+        polarDist = Math.abs(d);
+        // Angle in standard CAD: CCW from positive X axis (degrees to radians)
+        polarAngle = (a * Math.PI) / 180;
+      }
+    }
+
+    // 2. Check for coordinate pair / width-height: e.g. "80,50" or "80x50" or "80 50"
+    let isPair = false;
+    let valW = 0;
+    let valH = 0;
+    if (!isPolar && (rawInput.includes('x') || rawInput.includes('X') || (rawInput.includes(',') && rawInput.indexOf(',') !== rawInput.lastIndexOf(',')) || (/[, ]/.test(rawInput) && state.currentTool === 'rect'))) {
+      const parts = rawInput.split(/[,xX\s]+/).filter(Boolean);
+      if (parts.length >= 2) {
+        const w = parseFloat(parts[0].replace(',', '.'));
+        const h = parseFloat(parts[1].replace(',', '.'));
+        if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
+          isPair = true;
+          valW = w;
+          valH = h;
+        }
+      }
+    }
+
+    // 3. Single numeric value (with dot or comma decimal separator)
+    const singleVal = parseFloat(rawInput.replace(',', '.'));
+    const val = isPolar ? polarDist : isPair ? valW : singleVal;
+
+    if (isNaN(val) || val <= 0) {
       setKeyboardInput('');
       return;
     }
 
     const t = Date.now();
-    let updatedEntities = [...entities];
+    const updatedEntities = [...state.entities];
+    const {
+      p1,
+      p2,
+      step,
+      currentTool,
+      currentStyle,
+      orthoMode,
+      gridMode,
+      isoplane,
+      referenceLine,
+      customAngle,
+      polySides,
+      arcStartAngle,
+      activeLayerId,
+    } = state;
+
+    const coords = explicitCoords || state.coords;
+
+    if (!p1) {
+      setSaveStatus(`📏 Medida prefijada: ${val} mm. Haz clic en el lienzo para fijar origen.`);
+      return;
+    }
 
     if (['line', 'parallel', 'perpendicular', 'line_angle'].includes(currentTool)) {
-      // Determine direction vector
-      let dx = coords.x - p1.x;
-      let dy = coords.y - p1.y;
-      const mag = Math.hypot(dx, dy);
-      if (mag === 0) {
-        dx = 1;
-        dy = 0;
+      let finalX = coords.x;
+      let finalY = coords.y;
+
+      if (isPolar) {
+        // Polar vector: final = p1 + dist * (cos(a), -sin(a)) in SVG coordinates
+        finalX = p1.x + polarDist * Math.cos(polarAngle);
+        finalY = p1.y - polarDist * Math.sin(polarAngle);
+      } else if (isPair) {
+        finalX = p1.x + valW;
+        finalY = p1.y + valH;
+      } else if (['parallel', 'perpendicular', 'line_angle'].includes(currentTool) && referenceLine) {
+        let vx = referenceLine.x2 - referenceLine.x1;
+        let vy = referenceLine.y2 - referenceLine.y1;
+        if (currentTool === 'perpendicular') {
+          const tmp = vx;
+          vx = -vy;
+          vy = tmp;
+        } else if (currentTool === 'line_angle') {
+          const a = customAngle;
+          const tx = vx * Math.cos(a) - vy * Math.sin(a);
+          const ty = vx * Math.sin(a) + vy * Math.cos(a);
+          vx = tx;
+          vy = ty;
+        }
+        const mag = Math.hypot(vx, vy);
+        if (mag > 0) {
+          const ux = vx / mag;
+          const uy = vy / mag;
+          const dot = (coords.x - p1.x) * ux + (coords.y - p1.y) * uy;
+          const dir = dot >= 0 ? 1 : -1;
+          finalX = p1.x + dir * ux * val;
+          finalY = p1.y + dir * uy * val;
+        } else {
+          finalX = p1.x + val;
+          finalY = p1.y;
+        }
       } else {
-        dx /= mag;
-        dy /= mag;
+        let dx = coords.x - p1.x;
+        let dy = coords.y - p1.y;
+
+        if (orthoMode) {
+          if (gridMode === 'isometric') {
+            const projected = projectToIsoplane(p1, coords, isoplane);
+            dx = projected.x - p1.x;
+            dy = projected.y - p1.y;
+          } else {
+            if (Math.abs(dx) > Math.abs(dy)) {
+              dy = 0;
+            } else {
+              dx = 0;
+            }
+          }
+        }
+
+        const mag = Math.hypot(dx, dy);
+        let ux = 1;
+        let uy = 0;
+        if (mag > 0) {
+          ux = dx / mag;
+          uy = dy / mag;
+        }
+        finalX = p1.x + ux * val;
+        finalY = p1.y + uy * val;
       }
 
-      const finalX = p1.x + dx * val;
-      const finalY = p1.y + dy * val;
       const newLine: LineEntity = {
         type: 'line',
         id: t,
@@ -579,27 +789,81 @@ export default function App() {
         y1: p1.y,
         x2: finalX,
         y2: finalY,
+        layer: activeLayerId,
         style: { ...currentStyle },
       };
       updatedEntities.push(newLine);
       pushState(updatedEntities);
+      setSaveStatus(`📏 Segmento fijado: ${val.toFixed(2)} mm`);
+      setTimeout(() => setSaveStatus(''), 2000);
+      cancelAction();
+    } else if (currentTool === 'rect') {
+      const rw = isPair ? valW : val;
+      const rh = isPair ? valH : val;
+      const dirX = coords.x >= p1.x ? 1 : -1;
+      const dirY = coords.y >= p1.y ? 1 : -1;
+      const rx = dirX >= 0 ? p1.x : p1.x - rw;
+      const ry = dirY >= 0 ? p1.y : p1.y - rh;
+
+      const newRect: RectEntity = {
+        type: 'rect',
+        id: t,
+        x: rx,
+        y: ry,
+        w: rw,
+        h: rh,
+        layer: activeLayerId,
+        style: { ...currentStyle },
+      };
+      updatedEntities.push(newRect);
+      pushState(updatedEntities);
+      setSaveStatus(`📐 Rectángulo fijado: ${rw.toFixed(1)} × ${rh.toFixed(1)} mm`);
+      setTimeout(() => setSaveStatus(''), 2000);
       cancelAction();
     } else if (currentTool === 'measure') {
       if (step === 1) {
         let dx = coords.x - p1.x;
         let dy = coords.y - p1.y;
         const mag = Math.hypot(dx, dy);
+        let ux = 1;
+        let uy = 0;
         if (mag > 0) {
-          dx /= mag;
-          dy /= mag;
-        } else {
-          dx = 1;
-          dy = 0;
+          ux = dx / mag;
+          uy = dy / mag;
         }
-        setP2({ x: p1.x + dx * val, y: p1.y + dy * val });
+        setP2({ x: p1.x + ux * val, y: p1.y + uy * val });
         setStep(2);
+        setSaveStatus(`📏 Distancia de cota: ${val.toFixed(2)} mm fijada. Ahora haz clic o teclea separación mm.`);
         setKeyboardInput('');
         return;
+      } else if (step === 2 && p2) {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const mag = Math.hypot(dx, dy);
+        let nx = 0;
+        let ny = 0;
+        if (mag > 0) {
+          nx = -dy / mag;
+          ny = dx / mag;
+        }
+        const dot = (coords.x - p1.x) * nx + (coords.y - p1.y) * ny;
+        const dir = dot >= 0 ? 1 : -1;
+        updatedEntities.push({
+          type: 'measure',
+          id: t,
+          x1: p1.x,
+          y1: p1.y,
+          x2: p2.x,
+          y2: p2.y,
+          offsetDir: dir,
+          offsetDistance: val,
+          layer: activeLayerId,
+          style: { ...currentStyle },
+        });
+        pushState(updatedEntities);
+        setSaveStatus(`📏 Cota ISO fijada: separación ${val.toFixed(1)} mm`);
+        setTimeout(() => setSaveStatus(''), 2000);
+        cancelAction();
       }
     } else if (currentTool === 'circle') {
       updatedEntities.push({
@@ -608,10 +872,43 @@ export default function App() {
         cx: p1.x,
         cy: p1.y,
         r: val,
+        layer: activeLayerId,
         style: { ...currentStyle },
       });
       pushState(updatedEntities);
+      setSaveStatus(`⭕ Circunferencia: Radio ${val.toFixed(2)} mm`);
+      setTimeout(() => setSaveStatus(''), 2000);
       cancelAction();
+    } else if (currentTool === 'arc') {
+      if (step === 1) {
+        const ang = Math.atan2(coords.y - p1.y, coords.x - p1.x);
+        setP2({ x: p1.x + val * Math.cos(ang), y: p1.y + val * Math.sin(ang) });
+        setStep(2);
+        setArcStartAngle(ang);
+        setArcCurrentAngle(ang);
+        setArcSweepAngle(0);
+        setSaveStatus(`🏹 Radio de arco fijado: ${val.toFixed(2)} mm. Gira para barrido o teclea grados + Enter.`);
+        setKeyboardInput('');
+        return;
+      } else if (step === 2 && p2) {
+        const r = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const sweep = (val * Math.PI) / 180;
+        updatedEntities.push({
+          type: 'arc',
+          id: t,
+          cx: p1.x,
+          cy: p1.y,
+          r,
+          startAngle: arcStartAngle,
+          sweepAngle: sweep,
+          layer: activeLayerId,
+          style: { ...currentStyle },
+        });
+        pushState(updatedEntities);
+        setSaveStatus(`🏹 Arco creado: ${val.toFixed(1)}º`);
+        setTimeout(() => setSaveStatus(''), 2000);
+        cancelAction();
+      }
     } else if (currentTool === 'polygon') {
       const ang = Math.atan2(coords.y - p1.y, coords.x - p1.x);
       updatedEntities.push({
@@ -622,9 +919,12 @@ export default function App() {
         r: val,
         sides: polySides,
         angle: ang,
+        layer: activeLayerId,
         style: { ...currentStyle },
       });
       pushState(updatedEntities);
+      setSaveStatus(`🔷 Polígono de ${polySides} lados: Radio ${val.toFixed(2)} mm`);
+      setTimeout(() => setSaveStatus(''), 2000);
       cancelAction();
     } else if (currentTool === 'isocircle') {
       const { rx, ry, rotation } = calculateIsocircle(p1, val, isoplane);
@@ -641,6 +941,8 @@ export default function App() {
         style: { ...currentStyle },
       });
       pushState(updatedEntities);
+      setSaveStatus(`🔄 Isocírculo [${isoplane.toUpperCase()}]: Radio ${val.toFixed(2)} mm`);
+      setTimeout(() => setSaveStatus(''), 2000);
       cancelAction();
     } else if (currentTool === 'isobox') {
       const boxLines = createIsometricBox(
@@ -653,6 +955,77 @@ export default function App() {
         activeLayerId
       );
       pushState([...entities, ...boxLines]);
+      setSaveStatus(`📦 Caja Isométrica: Arista ${val.toFixed(2)} mm`);
+      setTimeout(() => setSaveStatus(''), 2000);
+      cancelAction();
+    } else if (currentTool === 'tales') {
+      const divCount = Math.max(2, Math.min(20, Math.round(val)));
+      const res = calculateThales(p1, coords, divCount);
+      const tNow = Date.now();
+      const newEntities: CadEntity[] = [];
+      res.pointsOnSegment.forEach((pt, i) => {
+        newEntities.push({
+          type: 'point',
+          id: tNow + i,
+          x: pt.x,
+          y: pt.y,
+          layer: activeLayerId,
+          style: { ...currentStyle, width: 0.4 },
+        });
+      });
+      res.parallels.forEach((par, i) => {
+        newEntities.push({
+          type: 'line',
+          id: tNow + 20 + i,
+          x1: par.x1,
+          y1: par.y1,
+          x2: par.x2,
+          y2: par.y2,
+          layer: 'construccion',
+          style: { width: 0.2, color: '#94a3b8', dash: '3,3', marker: 'none' },
+        });
+      });
+      pushState([...entities, ...newEntities]);
+      setSaveStatus(`📐 Teorema de Tales: ${divCount} divisiones`);
+      setTimeout(() => setSaveStatus(''), 2000);
+      cancelAction();
+    } else if (currentTool === 'mediatriz') {
+      const res = calculateMediatriz(p1, { x: p1.x + val, y: p1.y }, showCompassArcs);
+      const tNow = Date.now();
+      const newEntities: CadEntity[] = [
+        {
+          type: 'line',
+          id: tNow,
+          x1: res.line.x1,
+          y1: res.line.y1,
+          x2: res.line.x2,
+          y2: res.line.y2,
+          layer: activeLayerId,
+          style: { ...currentStyle, width: 0.5 },
+        },
+      ];
+      if (showCompassArcs) {
+        res.arcs.forEach((a, i) => {
+          newEntities.push({
+            type: 'arc',
+            id: tNow + 1 + i,
+            cx: a.cx,
+            cy: a.cy,
+            r: a.r,
+            startAngle: a.startAngle,
+            sweepAngle: a.sweepAngle,
+            layer: 'construccion',
+            style: { width: 0.2, color: '#94a3b8', dash: 'none', marker: 'none' },
+          });
+        });
+      }
+      pushState([...entities, ...newEntities]);
+      setSaveStatus(`📐 Mediatriz trazada (segmento de ${val.toFixed(1)} mm)`);
+      setTimeout(() => setSaveStatus(''), 2000);
+      cancelAction();
+    } else if (currentTool === 'tape_measure') {
+      setSaveStatus(`📏 Medida: ${val.toFixed(2)} mm`);
+      setTimeout(() => setSaveStatus(''), 4000);
       cancelAction();
     }
 
@@ -680,10 +1053,43 @@ export default function App() {
     const pos = getCanvasCoords(e);
     setCoords(pos);
 
-    // Commit pending keyboard input if any
+    // 1. Check if clicking on text resize handle (vertical or horizontal)
+    const targetEl = e.target as SVGElement;
+    const handleType = targetEl?.getAttribute ? targetEl.getAttribute('data-text-handle') : null;
+    const textEntityId = targetEl?.getAttribute ? targetEl.getAttribute('data-text-id') : null;
+
+    if (handleType && textEntityId) {
+      const textEnt = entities.find(
+        (ent) => ent.id === Number(textEntityId) && ent.type === 'text'
+      ) as TextEntity | undefined;
+      if (textEnt) {
+        setTextResize({
+          entityId: textEnt.id,
+          handle: handleType,
+          startX: pos.x,
+          startY: pos.y,
+          origX: textEnt.x,
+          origY: textEnt.y,
+          origW: textEnt.w,
+          origH: textEnt.h || 25,
+        });
+        setIsDrawing(true);
+        return;
+      }
+    }
+
+    // 2. Commit pending keyboard measure input
     if (keyboardInput !== '') {
-      applyKeyboardMeasure();
-      return;
+      if (p1) {
+        drawStateRef.current.coords = pos;
+        applyKeyboardMeasure(undefined, pos);
+        return;
+      } else if (['circle', 'polygon', 'isocircle', 'isobox'].includes(currentTool)) {
+        drawStateRef.current.coords = pos;
+        drawStateRef.current.p1 = pos;
+        applyKeyboardMeasure(undefined, pos);
+        return;
+      }
     }
 
     // Cursor / Selection Tool
@@ -1385,6 +1791,44 @@ export default function App() {
 
     if (!isDrawing) return;
 
+    // Handle text box resize via handles (vertical & horizontal)
+    if (textResize) {
+      const targetEntity = entities.find(
+        (ent) => ent.id === textResize.entityId && ent.type === 'text'
+      ) as TextEntity | undefined;
+      if (targetEntity) {
+        const dx = pos.x - textResize.startX;
+        const dy = pos.y - textResize.startY;
+        let newX = textResize.origX;
+        let newY = textResize.origY;
+        let newW = textResize.origW;
+        let newH = textResize.origH;
+
+        // Horizontal handles & corners
+        if (textResize.handle === 'e' || textResize.handle === 'ne' || textResize.handle === 'se') {
+          newW = Math.max(15, textResize.origW + dx);
+        } else if (textResize.handle === 'w' || textResize.handle === 'nw' || textResize.handle === 'sw') {
+          newW = Math.max(15, textResize.origW - dx);
+          newX = textResize.origX + (textResize.origW - newW);
+        }
+
+        // Vertical handles & corners
+        if (textResize.handle === 's' || textResize.handle === 'se' || textResize.handle === 'sw') {
+          newH = Math.max(10, textResize.origH + dy);
+        } else if (textResize.handle === 'n' || textResize.handle === 'ne' || textResize.handle === 'nw') {
+          newH = Math.max(10, textResize.origH - dy);
+          newY = textResize.origY + (textResize.origH - newH);
+        }
+
+        targetEntity.x = newX;
+        targetEntity.y = newY;
+        targetEntity.w = newW;
+        targetEntity.h = newH;
+        setProject((prev) => ({ ...prev }));
+      }
+      return;
+    }
+
     // Box selection marquee
     if (currentTool === 'cursor' && isBoxSelecting && boxStart) {
       const minX = Math.min(boxStart.x, pos.x);
@@ -1646,6 +2090,15 @@ export default function App() {
       return;
     }
 
+    if (textResize) {
+      setTextResize(null);
+      setIsDrawing(false);
+      pushState([...entities]);
+      setSaveStatus('📐 Caja de texto ajustada');
+      setTimeout(() => setSaveStatus(''), 1500);
+      return;
+    }
+
     if (!isDrawing) return;
 
     if (currentTool === 'cursor') {
@@ -1738,15 +2191,17 @@ export default function App() {
       const x = Math.min(p1.x, pos.x);
       const y = Math.min(p1.y, pos.y);
       const w = Math.max(40, Math.abs(pos.x - p1.x));
+      const h = Math.max(15, Math.abs(pos.y - p1.y));
       const newText: TextEntity = {
         type: 'text',
         id: Date.now(),
         x,
         y,
         w,
-        h: 25,
+        h,
         textHtml: 'Escribe tu <b>nota técnica</b> o enunciado aquí...',
         fontSize: 5,
+        layer: activeLayerId,
         style: { ...currentStyle },
       };
       pushState([...entities, newText]);
@@ -1754,6 +2209,7 @@ export default function App() {
       setEditingTextEntity(newText);
       setIsRichTextOpen(true);
       setCurrentTool('cursor');
+      setSelectedEntities([newText]);
     }
   };
 
@@ -1971,7 +2427,19 @@ export default function App() {
     const chosenName = prompt('Introduce el nombre del archivo para guardar el proyecto:', defaultName);
     if (chosenName === null) return;
     const cleanName = chosenName.trim() || defaultName;
-    const updated = { ...project, projectName: cleanName };
+    const updatedPages = [...project.pages];
+    updatedPages[currentPageIndex] = {
+      ...(updatedPages[currentPageIndex] || currentPage),
+      data: entities,
+    };
+    const updated: CadProject = {
+      ...project,
+      projectName: cleanName,
+      pages: updatedPages,
+      layers,
+      currentPageIndex,
+      updatedAt: new Date().toISOString(),
+    };
     setProject(updated);
     downloadProjectFile(updated, cleanName);
     setSaveStatus(`💾 Guardado como ${cleanName}.json`);
@@ -2075,9 +2543,27 @@ export default function App() {
           reader.onload = (evt) => {
             try {
               const loaded = parseProjectFile(evt.target?.result as string);
+              setShowPlayer(false);
+              setPlayerStep(0);
+              setSelectedEntities([]);
+              setReferenceLine(null);
+              setCurvePoints([]);
+              setTextResize(null);
+              setKeyboardInput('');
               setProject(loaded);
-              setCurrentPageIndex(0);
+              if (loaded.layers && Array.isArray(loaded.layers) && loaded.layers.length > 0) {
+                // Ensure all layers are visible so no entities are hidden
+                setLayers(loaded.layers.map((l) => ({ ...l, visible: true })));
+              }
+              const pageIdx =
+                typeof loaded.currentPageIndex === 'number' && loaded.currentPageIndex < loaded.pages.length
+                  ? loaded.currentPageIndex
+                  : 0;
+              setCurrentPageIndex(pageIdx);
               cancelAction();
+              const entCount = loaded.pages[pageIdx]?.data?.length || 0;
+              setSaveStatus(`📂 Archivo "${file.name}" cargado (${entCount} elementos)`);
+              setTimeout(() => setSaveStatus(''), 2500);
             } catch (err) {
               alert('Error al leer el archivo de proyecto JSON.');
             }
@@ -2164,6 +2650,7 @@ export default function App() {
             hiddenLayers={new Set(layers.filter((l) => !l.visible).map((l) => l.id))}
             cursorPos={coords}
             showRulers={true}
+            keyboardInput={keyboardInput}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -2282,7 +2769,12 @@ export default function App() {
             : ''
         }
         onExecuteCommand={(cmdStr) => {
-          const trimmed = cmdStr.trim().toUpperCase();
+          const raw = cmdStr.trim();
+          if (/^[0-9.,<xX\-\s]+$/.test(raw) && /[0-9]/.test(raw)) {
+            applyKeyboardMeasure(raw);
+            return;
+          }
+          const trimmed = raw.toUpperCase();
           if (trimmed === 'L' || trimmed === 'LINEA' || trimmed === 'LINE') setCurrentTool('line');
           else if (trimmed === 'C' || trimmed === 'CIRCULO' || trimmed === 'CIRCLE') setCurrentTool('circle');
           else if (trimmed === 'S' || trimmed === 'SPLINE' || trimmed === 'CURVA') setCurrentTool('curve');

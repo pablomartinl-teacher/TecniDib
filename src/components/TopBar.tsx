@@ -301,7 +301,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <input
             ref={jsonInputRef}
             type="file"
-            accept=".json"
+            accept=".json,.vektor,.vektorcad,application/json,text/plain"
             className="hidden"
             onChange={onLoadFromFile}
           />

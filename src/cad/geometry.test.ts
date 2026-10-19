@@ -24,7 +24,8 @@ import {
   createDiedricoTemplate,
 } from './geometry.ts';
 import { renderPageToSvgString } from './pdfExport.ts';
-import type { LineEntity, CircleEntity, EntityStyle, PageDocument } from './types.ts';
+import { normalizeEntity, parseProjectFile } from './storage.ts';
+import type { LineEntity, CircleEntity, EntityStyle, PageDocument, TextEntity } from './types.ts';
 
 test('distance calculation between 2D points', () => {
   const d = distance({ x: 0, y: 0 }, { x: 30, y: 40 });
@@ -296,5 +297,120 @@ test('renderPageToSvgString produces distinct SVG for each page without repeatin
   assert.notEqual(svg1, svg2);
 });
 
+test('normalizeEntity preserves text, handles, and Spanish aliases without data loss', () => {
+  // Test text entity with plain text
+  const rawText: any = {
+    type: 'TEXTO',
+    x: 40,
+    y: 60,
+    text: 'Nota de cálculo',
+    w: 80,
+    h: 30,
+    fontSize: 6,
+  };
+  const normalizedText = normalizeEntity(rawText) as TextEntity;
+  assert.equal(normalizedText.type, 'text');
+  assert.equal(normalizedText.text, 'Nota de cálculo');
+  assert.ok(normalizedText.textHtml.includes('Nota de cálculo'));
+  assert.equal(normalizedText.w, 80);
+  assert.equal(normalizedText.h, 30);
+  assert.equal(normalizedText.fontSize, 6);
 
+  // Test dimension alias
+  const rawDim: any = {
+    type: 'COTA',
+    x1: 0,
+    y1: 0,
+    x2: 100,
+    y2: 0,
+  };
+  const normDim = normalizeEntity(rawDim);
+  assert.equal(normDim.type, 'measure');
 
+  // Test spline alias
+  const rawSpline: any = {
+    type: 'SPLINE',
+    points: [{ x: 10, y: 10 }, { x: 20, y: 30 }, { x: 40, y: 15 }],
+  };
+  const normSpline = normalizeEntity(rawSpline);
+  assert.equal(normSpline.type, 'curve');
+});
+
+test('parseProjectFile reconstructs full project with texts, sheets, and layers intact', () => {
+  const jsonContent = JSON.stringify({
+    version: '2.0.0',
+    projectName: 'Pieza_Mecanica',
+    pages: [
+      {
+        id: 'p1',
+        title: 'Lámina Principal',
+        sheetSize: { name: 'DIN A4 Horizontal', w: 297, h: 210, orientation: 'landscape' },
+        data: [
+          {
+            type: 'text',
+            id: 101,
+            x: 25,
+            y: 40,
+            w: 90,
+            h: 35,
+            textHtml: '<b>Enunciado:</b> Trazar vistas diédricas',
+            text: 'Enunciado: Trazar vistas diédricas',
+            fontSize: 5,
+            style: { width: 0.5, color: '#0284c7', dash: 'none', marker: 'none' },
+          },
+          {
+            type: 'line',
+            id: 102,
+            x1: 10,
+            y1: 20,
+            x2: 80,
+            y2: 20,
+            style: { width: 0.7, color: '#000000', dash: 'none', marker: 'none' },
+          },
+        ],
+      },
+    ],
+  });
+
+  const parsed = parseProjectFile(jsonContent);
+  assert.equal(parsed.projectName, 'Pieza_Mecanica');
+  assert.equal(parsed.pages.length, 1);
+  assert.equal(parsed.pages[0].data.length, 2);
+
+  const textItem = parsed.pages[0].data[0] as TextEntity;
+  assert.equal(textItem.type, 'text');
+  assert.equal(textItem.w, 90);
+  assert.equal(textItem.h, 35);
+  assert.equal(textItem.text, 'Enunciado: Trazar vistas diédricas');
+  assert.ok(textItem.textHtml.includes('Trazar vistas diédricas'));
+});
+
+test('normalizeEntity preserves caja_texto, mtext, and rectangulo aliases with full dimensions', () => {
+  const rawBoxText: any = {
+    type: 'caja_texto',
+    x: 15,
+    y: 25,
+    w: 120,
+    h: 45,
+    textHtml: '<div>Nota con <i>formato</i></div>',
+    fontSize: 7,
+  };
+  const normBoxText = normalizeEntity(rawBoxText) as TextEntity;
+  assert.equal(normBoxText.type, 'text');
+  assert.equal(normBoxText.w, 120);
+  assert.equal(normBoxText.h, 45);
+  assert.equal(normBoxText.fontSize, 7);
+  assert.ok(normBoxText.textHtml.includes('formato'));
+
+  const rawRect: any = {
+    type: 'rectangulo',
+    x: 10,
+    y: 10,
+    w: 50,
+    h: 30,
+  };
+  const normRect: any = normalizeEntity(rawRect);
+  assert.equal(normRect.type, 'rect');
+  assert.equal(normRect.w, 50);
+  assert.equal(normRect.h, 30);
+});
