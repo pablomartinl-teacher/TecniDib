@@ -38,20 +38,22 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     { key: 'TRIM', label: 'Recortar' },
     { key: 'DIST', label: 'Medir' },
     { key: 'MIRROR', label: 'Simetría' },
-    { key: 'DXF', label: 'Export DXF' },
+    { key: 'PURGE', label: 'Purgar' },
+    { key: 'HELP', label: 'Atajos' },
+    { key: 'DXF', label: 'DXF' },
   ];
 
   return (
     <footer className="h-10 bg-slate-900 border-t border-slate-800 text-xs text-slate-300 flex items-center justify-between px-3 shrink-0 select-none z-30 font-mono">
       {/* Left: Terminal prompt & status instructions */}
-      <div className="flex items-center gap-3 overflow-hidden flex-1 mr-4">
+      <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0 mr-3">
         <div className="flex items-center gap-1.5 text-blue-400 font-semibold shrink-0">
           <Terminal size={14} />
-          <span className="uppercase tracking-wider text-[11px]">COMANDO:</span>
+          <span className="uppercase tracking-wider text-[11px] hidden sm:inline">COMANDO:</span>
         </div>
 
-        <div className="truncate text-slate-200 bg-slate-950/60 px-2.5 py-0.5 rounded border border-slate-800/80 max-w-xl text-[11px]">
-          {promptText || 'Listo para dibujar. Selecciona una herramienta o teclea un comando rápido.'}
+        <div className="truncate text-slate-200 bg-slate-950/60 px-2.5 py-0.5 rounded border border-slate-800/80 text-[11px] max-w-xs md:max-w-sm lg:max-w-md shrink">
+          {promptText || 'Listo para dibujar. Selecciona herramienta o teclea comando.'}
         </div>
 
         {/* Quick CLI Input */}
@@ -60,8 +62,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             type="text"
             value={commandInput}
             onChange={(e) => setCommandInput(e.target.value)}
-            placeholder="Comando (L, C, MED...)"
-            className="bg-slate-950 border border-slate-700/80 rounded px-2 py-0.5 text-xs text-amber-300 placeholder-slate-500 w-36 focus:outline-none focus:border-blue-500 uppercase font-mono"
+            placeholder="Atajo (L, C, M...)"
+            className="bg-slate-950 border border-slate-700/80 rounded px-2 py-0.5 text-xs text-amber-300 placeholder-slate-500 w-28 sm:w-36 focus:outline-none focus:border-blue-500 uppercase font-mono"
           />
           <button
             type="submit"
@@ -72,15 +74,15 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           </button>
         </form>
 
-        {/* Quick Command Chips */}
-        <div className="hidden lg:flex items-center gap-1 overflow-x-auto py-0.5">
-          {quickCommands.map((cmd) => (
+        {/* Quick Command Chips - gracefully hide to avoid squeezing coordinates */}
+        <div className="hidden xl:flex items-center gap-1 overflow-hidden shrink">
+          {quickCommands.slice(0, 6).map((cmd) => (
             <button
               key={cmd.key}
               type="button"
               onClick={() => onExecuteCommand(cmd.key)}
               title={`Activar ${cmd.label}`}
-              className="px-1.5 py-0.5 bg-slate-800/70 hover:bg-slate-700 hover:text-white text-[10px] text-slate-300 rounded border border-slate-700/60 transition-colors"
+              className="px-1.5 py-0.5 bg-slate-800/70 hover:bg-slate-700 hover:text-white text-[10px] text-slate-300 rounded border border-slate-700/60 transition-colors shrink-0"
             >
               <strong className="text-amber-400 mr-1">{cmd.key}</strong>
               {cmd.label}
@@ -90,7 +92,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       </div>
 
       {/* Right: Real-time Coordinates & Help */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0 ml-auto">
         <div className="flex items-center gap-3 bg-slate-950/80 px-2.5 py-1 rounded border border-slate-800 text-[11px]">
           <span className="text-slate-400">
             X: <strong className="text-cyan-400">{coords.x.toFixed(1)}</strong> mm

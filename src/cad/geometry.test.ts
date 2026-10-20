@@ -22,6 +22,10 @@ import {
   calculateIsocircle,
   createIsometricBox,
   createDiedricoTemplate,
+  detectClosedCycleFromSegments,
+  isEntityInsideBox,
+  isEntityCrossingBox,
+  purgeEntities,
 } from './geometry.ts';
 import { renderPageToSvgString } from './pdfExport.ts';
 import { normalizeEntity, parseProjectFile } from './storage.ts';
@@ -413,4 +417,172 @@ test('normalizeEntity preserves caja_texto, mtext, and rectangulo aliases with f
   assert.equal(normRect.type, 'rect');
   assert.equal(normRect.w, 50);
   assert.equal(normRect.h, 30);
+});
+
+test('detectClosedCycleFromSegments detects triangle formed by 3 segments', () => {
+  const line1: LineEntity = {
+    id: 101,
+    type: 'line',
+    x1: 0,
+    y1: 0,
+    x2: 100,
+    y2: 0,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  const line2: LineEntity = {
+    id: 102,
+    type: 'line',
+    x1: 100,
+    y1: 0,
+    x2: 50,
+    y2: 80,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  // Closing segment from (50, 80) back to (0, 0)
+  const closingSeg = { x1: 50, y1: 80, x2: 0, y2: 0 };
+  const cycle = detectClosedCycleFromSegments(closingSeg, [line1, line2], 2.0);
+
+  assert.ok(cycle !== null, 'Should detect closed triangle cycle');
+  assert.equal(cycle!.vertices.length, 3);
+  assert.equal(cycle!.segmentIds.length, 2);
+  assert.ok(cycle!.segmentIds.includes(101));
+  assert.ok(cycle!.segmentIds.includes(102));
+  assert.ok(cycle!.radius > 0);
+  assert.ok(cycle!.centroid.x > 30 && cycle!.centroid.x < 70);
+});
+
+test('detectClosedCycleFromSegments detects irregular quad cycle', () => {
+  const line1: LineEntity = {
+    id: 201,
+    type: 'line',
+    x1: 10,
+    y1: 10,
+    x2: 90,
+    y2: 15,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  const line2: LineEntity = {
+    id: 202,
+    type: 'line',
+    x1: 90,
+    y1: 15,
+    x2: 110,
+    y2: 85,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  const line3: LineEntity = {
+    id: 203,
+    type: 'line',
+    x1: 110,
+    y1: 85,
+    x2: 20,
+    y2: 95,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+
+  // Closing segment from (20, 95) to (10, 10)
+  const closingSeg = { x1: 20, y1: 95, x2: 10, y2: 10 };
+  const cycle = detectClosedCycleFromSegments(closingSeg, [line1, line2, line3], 2.0);
+
+  assert.ok(cycle !== null, 'Should detect irregular quad');
+  assert.equal(cycle!.vertices.length, 4);
+  assert.equal(cycle!.segmentIds.length, 3);
+});
+
+test('detectClosedCycleFromSegments ignores non-closing segments', () => {
+  const line1: LineEntity = {
+    id: 301,
+    type: 'line',
+    x1: 0,
+    y1: 0,
+    x2: 50,
+    y2: 0,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  // Separate open segment
+  const openSeg = { x1: 60, y1: 10, x2: 100, y2: 50 };
+  const cycle = detectClosedCycleFromSegments(openSeg, [line1], 2.0);
+  assert.equal(cycle, null);
+});
+
+test('CAD window selection: inside vs crossing selection', () => {
+  const lineInside: LineEntity = {
+    id: 1,
+    type: 'line',
+    x1: 20,
+    y1: 20,
+    x2: 40,
+    y2: 40,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+
+  const lineCrossing: LineEntity = {
+    id: 2,
+    type: 'line',
+    x1: 0,
+    y1: 30,
+    x2: 50,
+    y2: 30,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+
+  const lineOutside: LineEntity = {
+    id: 3,
+    type: 'line',
+    x1: 150,
+    y1: 150,
+    x2: 180,
+    y2: 180,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+
+  const box = { minX: 10, maxX: 60, minY: 10, maxY: 60 };
+
+  // Window selection (inside only)
+  assert.equal(isEntityInsideBox(lineInside, box), true);
+  assert.equal(isEntityInsideBox(lineCrossing, box), false, 'Crossing line should NOT be inside window');
+  assert.equal(isEntityInsideBox(lineOutside, box), false);
+
+  // Crossing selection (inside OR touching/intersecting)
+  assert.equal(isEntityCrossingBox(lineInside, box), true);
+  assert.equal(isEntityCrossingBox(lineCrossing, box), true, 'Crossing line SHOULD be selected by crossing');
+  assert.equal(isEntityCrossingBox(lineOutside, box), false);
+});
+
+test('CAD purgeEntities cleans degenerate zero-length lines and empty texts', () => {
+  const zeroLine: LineEntity = {
+    id: 1,
+    type: 'line',
+    x1: 25,
+    y1: 25,
+    x2: 25,
+    y2: 25,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  const validLine: LineEntity = {
+    id: 2,
+    type: 'line',
+    x1: 0,
+    y1: 0,
+    x2: 50,
+    y2: 50,
+    style: { width: 0.5, color: '#000', dash: 'none', marker: 'none' },
+  };
+  const emptyText: TextEntity = {
+    id: 3,
+    type: 'text',
+    x: 10,
+    y: 10,
+    w: 50,
+    h: 20,
+    fontSize: 5,
+    textHtml: '   <p></p>  ',
+    style: { width: 0.2, color: '#000', dash: 'none', marker: 'none' },
+  };
+
+  const result = purgeEntities([zeroLine, validLine, emptyText]);
+  assert.equal(result.cleaned.length, 1);
+  assert.equal(result.cleaned[0].id, 2);
+  assert.equal(result.removedCount, 2);
+  assert.ok(result.details.includes('eliminaron 2 elemento'));
 });

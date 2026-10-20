@@ -10,6 +10,7 @@ import type {
   EntityStyle,
   LineEntity,
   ArcEntity,
+  PolygonEntity,
   TagEntity,
   SheetSize,
   Isoplane,
@@ -93,6 +94,170 @@ export function getPolygonVertices(cx: number, cy: number, r: number, sides: num
 }
 
 /**
+ * Returns the effective vertices of a PolygonEntity (explicit points if irregular, or computed for regular)
+ */
+export function getEntityPolygonVertices(ent: PolygonEntity): Point2D[] {
+  if (ent.points && ent.points.length >= 3) {
+    return ent.points;
+  }
+  return getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
+}
+
+/**
+ * Determines whether a 2D point is inside an arbitrary polygon using ray casting
+ */
+export function isPointInPolygon(pt: Point2D, vertices: Point2D[]): boolean {
+  if (vertices.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x;
+    const yi = vertices[i].y;
+    const xj = vertices[j].x;
+    const yj = vertices[j].y;
+    const intersect = yi > pt.y !== yj > pt.y && pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Calculates the exact area of an arbitrary simple polygon using the Shoelace formula (in mm²)
+ */
+export function calculatePolygonArea(vertices: Point2D[]): number {
+  if (vertices.length < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const j = (i + 1) % vertices.length;
+    area += vertices[i].x * vertices[j].y;
+    area -= vertices[j].x * vertices[i].y;
+  }
+  return Math.abs(area / 2);
+}
+
+/**
+ * Calculates the perimeter of a polygon in mm
+ */
+export function calculatePolygonPerimeter(vertices: Point2D[]): number {
+  if (vertices.length < 2) return 0;
+  let perim = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const j = (i + 1) % vertices.length;
+    perim += Math.hypot(vertices[j].x - vertices[i].x, vertices[j].y - vertices[i].y);
+  }
+  return perim;
+}
+
+/**
+ * Detects whether adding a new segment completes a closed planar cycle with existing connected segments.
+ * Uses BFS graph cycle detection with geometric snapping tolerance.
+ */
+export function detectClosedCycleFromSegments(
+  newSeg: { x1: number; y1: number; x2: number; y2: number },
+  existingLines: LineEntity[],
+  snapTol = 2.0
+): { vertices: Point2D[]; segmentIds: number[]; centroid: Point2D; radius: number } | null {
+  const pStart: Point2D = { x: newSeg.x1, y: newSeg.y1 };
+  const pEnd: Point2D = { x: newSeg.x2, y: newSeg.y2 };
+
+  // Skip zero length
+  if (distance(pStart, pEnd) < 0.2) return null;
+
+  // Filter valid lines
+  const validLines = existingLines.filter(
+    (l) => Math.hypot(l.x2 - l.x1, l.y2 - l.y1) >= 0.2
+  );
+  if (validLines.length < 2) return null;
+
+  // BFS search from pEnd to find a path through validLines to pStart
+  interface BFSNode {
+    currentPt: Point2D;
+    pathPts: Point2D[];
+    usedIds: number[];
+  }
+
+  const queue: BFSNode[] = [
+    {
+      currentPt: pEnd,
+      pathPts: [pStart, pEnd],
+      usedIds: [],
+    },
+  ];
+
+  const maxSteps = 300;
+  let steps = 0;
+
+  while (queue.length > 0 && steps++ < maxSteps) {
+    const { currentPt, pathPts, usedIds } = queue.shift()!;
+
+    // Find candidate segments that connect to currentPt
+    for (const seg of validLines) {
+      if (usedIds.includes(seg.id)) continue;
+
+      const pA: Point2D = { x: seg.x1, y: seg.y1 };
+      const pB: Point2D = { x: seg.x2, y: seg.y2 };
+
+      const dA = distance(currentPt, pA);
+      const dB = distance(currentPt, pB);
+
+      let nextPt: Point2D | null = null;
+      if (dA <= snapTol) {
+        nextPt = pB;
+      } else if (dB <= snapTol) {
+        nextPt = pA;
+      }
+
+      if (nextPt) {
+        // Check if nextPt connects back to pStart (closing the loop!)
+        const dStart = distance(nextPt, pStart);
+        if (dStart <= snapTol && usedIds.length >= 1) {
+          // Closed loop completed!
+          // Build final unique vertices of the polygon
+          const loopPts = [...pathPts];
+
+          // Compute area
+          const area = calculatePolygonArea(loopPts);
+          if (area > 0.5 && loopPts.length >= 3) {
+            // Calculate centroid
+            let sumX = 0;
+            let sumY = 0;
+            for (const v of loopPts) {
+              sumX += v.x;
+              sumY += v.y;
+            }
+            const centroid = { x: sumX / loopPts.length, y: sumY / loopPts.length };
+            let maxR = 0;
+            for (const v of loopPts) {
+              const r = distance(centroid, v);
+              if (r > maxR) maxR = r;
+            }
+
+            return {
+              vertices: loopPts,
+              segmentIds: [...usedIds, seg.id],
+              centroid,
+              radius: maxR || 10,
+            };
+          }
+        }
+
+        // Avoid self-intersecting loops by checking if nextPt is already in pathPts
+        const isRepeated = pathPts.some((pt, idx) => idx > 0 && distance(pt, nextPt!) <= snapTol * 0.7);
+        if (!isRepeated && pathPts.length < 24) {
+          queue.push({
+            currentPt: nextPt,
+            pathPts: [...pathPts, nextPt],
+            usedIds: [...usedIds, seg.id],
+          });
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+
+/**
  * Tests if an angle is within an arc range
  */
 export function isAngleInArc(angle: number, startAngle: number, sweepAngle: number): boolean {
@@ -140,7 +305,7 @@ export function calculateIntersections(entities: CadEntity[]): Point2D[] {
       segs.push({ x1: ent.x + ent.w, y1: ent.y + ent.h, x2: ent.x, y2: ent.y + ent.h });
       segs.push({ x1: ent.x, y1: ent.y + ent.h, x2: ent.x, y2: ent.y });
     } else if (ent.type === 'polygon') {
-      const pts = getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
+      const pts = getEntityPolygonVertices(ent);
       for (let i = 0; i < pts.length; i++) {
         const pA = pts[i];
         const pB = pts[(i + 1) % pts.length];
@@ -340,7 +505,7 @@ export function findSnapPoint(
         minDistance = dc;
         bestPoint = { x: ent.cx, y: ent.cy, type: 'center', label: 'Centro' };
       }
-      const vertices = getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
+      const vertices = getEntityPolygonVertices(ent);
       for (const v of vertices) {
         const dv = distance(mousePos, v);
         if (dv < minDistance) {
@@ -468,10 +633,19 @@ export function getHitEntity(pos: Point2D, entities: CadEntity[], tolerance = 5)
     } else if (ent.type === 'circle') {
       d = Math.abs(Math.hypot(ent.cx - pos.x, ent.cy - pos.y) - ent.r);
     } else if (ent.type === 'polygon') {
-      const pts = getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
-      for (let i = 0; i < ent.sides; i++) {
-        const ds = distPointToSegment(pos, pts[i], pts[(i + 1) % ent.sides]).dist;
+      const pts = getEntityPolygonVertices(ent);
+      for (let i = 0; i < pts.length; i++) {
+        const ds = distPointToSegment(pos, pts[i], pts[(i + 1) % pts.length]).dist;
         if (ds < d) d = ds;
+      }
+      // If the polygon has a fill, test if the pointer is inside the polygon
+      if (
+        ent.style?.fillColor &&
+        ent.style.fillColor !== 'none' &&
+        ent.style.fillColor !== 'transparent' &&
+        isPointInPolygon(pos, pts)
+      ) {
+        d = 0;
       }
     } else if (ent.type === 'arc') {
       const distCenter = Math.hypot(ent.cx - pos.x, ent.cy - pos.y);
@@ -695,7 +869,7 @@ export function generateDxfString(sheet: { w: number; h: number }, entities: Cad
     } else if (ent.type === 'tag') {
       dxf += `0\nTEXT\n8\n${layer}\n10\n${ent.x.toFixed(3)}\n20\n${flipY(ent.y)}\n40\n${(ent.fontSize || 3.5).toFixed(2)}\n1\n${ent.text}\n`;
     } else if (ent.type === 'polygon') {
-      const pts = getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
+      const pts = getEntityPolygonVertices(ent);
       for (let i = 0; i < pts.length; i++) {
         const pA = pts[i];
         const pB = pts[(i + 1) % pts.length];
@@ -1025,4 +1199,242 @@ export function createDiedricoTemplate(
   entities.push(mkTag('PERSPECTIVA ISOMÉTRICA (120º)', midX + 15, 28, 3.2));
 
   return entities;
+}
+
+/**
+ * Returns the bounding box of any CAD entity
+ */
+export function getEntityBoundingBox(ent: CadEntity): { minX: number; maxX: number; minY: number; maxY: number } {
+  switch (ent.type) {
+    case 'line':
+    case 'measure': {
+      return {
+        minX: Math.min(ent.x1, ent.x2),
+        maxX: Math.max(ent.x1, ent.x2),
+        minY: Math.min(ent.y1, ent.y2),
+        maxY: Math.max(ent.y1, ent.y2),
+      };
+    }
+    case 'circle': {
+      return {
+        minX: ent.cx - ent.r,
+        maxX: ent.cx + ent.r,
+        minY: ent.cy - ent.r,
+        maxY: ent.cy + ent.r,
+      };
+    }
+    case 'arc': {
+      // Conservative bounding box
+      return {
+        minX: ent.cx - ent.r,
+        maxX: ent.cx + ent.r,
+        minY: ent.cy - ent.r,
+        maxY: ent.cy + ent.r,
+      };
+    }
+    case 'polygon': {
+      const vertices = getEntityPolygonVertices(ent);
+      if (vertices.length === 0) {
+        return { minX: ent.cx, maxX: ent.cx, minY: ent.cy, maxY: ent.cy };
+      }
+      const xs = vertices.map((v) => v.x);
+      const ys = vertices.map((v) => v.y);
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+      };
+    }
+    case 'rect': {
+      return {
+        minX: Math.min(ent.x, ent.x + ent.w),
+        maxX: Math.max(ent.x, ent.x + ent.w),
+        minY: Math.min(ent.y, ent.y + ent.h),
+        maxY: Math.max(ent.y, ent.y + ent.h),
+      };
+    }
+    case 'point':
+    case 'symbol': {
+      const pad = 2;
+      return { minX: ent.x - pad, maxX: ent.x + pad, minY: ent.y - pad, maxY: ent.y + pad };
+    }
+    case 'tag': {
+      const w = (ent.text?.length || 2) * (ent.fontSize || 3) * 0.7;
+      const h = ent.fontSize || 3;
+      return { minX: ent.x, maxX: ent.x + w, minY: ent.y - h, maxY: ent.y };
+    }
+    case 'text': {
+      const w = ent.w || 30;
+      const h = ent.h || 15;
+      return { minX: ent.x, maxX: ent.x + w, minY: ent.y, maxY: ent.y + h };
+    }
+    case 'curve': {
+      if (!ent.points || ent.points.length === 0) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+      const xs = ent.points.map((p) => p.x);
+      const ys = ent.points.map((p) => p.y);
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+      };
+    }
+    default: {
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    }
+  }
+}
+
+/**
+ * Standard CAD Window Selection (Arrastre Izquierda -> Derecha):
+ * Entity must be 100% COMPLETELY enclosed inside the box
+ */
+export function isEntityInsideBox(
+  ent: CadEntity,
+  box: { minX: number; maxX: number; minY: number; maxY: number }
+): boolean {
+  const b = getEntityBoundingBox(ent);
+  return b.minX >= box.minX && b.maxX <= box.maxX && b.minY >= box.minY && b.maxY <= box.maxY;
+}
+
+function lineIntersectsLine(
+  p1: Point2D,
+  p2: Point2D,
+  p3: Point2D,
+  p4: Point2D
+): boolean {
+  const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+  if (Math.abs(d) < 1e-9) return false;
+  const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+  const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+/**
+ * Standard CAD Crossing Selection (Arrastre Derecha -> Izquierda):
+ * Entity is selected if it is inside OR crosses any border of the box
+ */
+export function isEntityCrossingBox(
+  ent: CadEntity,
+  box: { minX: number; maxX: number; minY: number; maxY: number }
+): boolean {
+  const b = getEntityBoundingBox(ent);
+  // If bounding boxes do not overlap at all, cannot cross
+  if (b.maxX < box.minX || b.minX > box.maxX || b.maxY < box.minY || b.minY > box.maxY) {
+    return false;
+  }
+  // If completely inside, it's selected
+  if (b.minX >= box.minX && b.maxX <= box.maxX && b.minY >= box.minY && b.maxY <= box.maxY) {
+    return true;
+  }
+
+  // Box 4 perimeter segments
+  const tl = { x: box.minX, y: box.minY };
+  const tr = { x: box.maxX, y: box.minY };
+  const br = { x: box.maxX, y: box.maxY };
+  const bl = { x: box.minX, y: box.maxY };
+  const boxEdges: [Point2D, Point2D][] = [
+    [tl, tr],
+    [tr, br],
+    [br, bl],
+    [bl, tl],
+  ];
+
+  if (ent.type === 'line' || ent.type === 'measure') {
+    const s1 = { x: ent.x1, y: ent.y1 };
+    const s2 = { x: ent.x2, y: ent.y2 };
+    // Check if either endpoint is inside
+    if (
+      (s1.x >= box.minX && s1.x <= box.maxX && s1.y >= box.minY && s1.y <= box.maxY) ||
+      (s2.x >= box.minX && s2.x <= box.maxX && s2.y >= box.minY && s2.y <= box.maxY)
+    ) {
+      return true;
+    }
+    // Check if segment crosses any box edge
+    return boxEdges.some(([e1, e2]) => lineIntersectsLine(s1, s2, e1, e2));
+  }
+
+  if (ent.type === 'polygon') {
+    const verts = getEntityPolygonVertices(ent);
+    if (verts.length === 0) return false;
+    // Any vertex inside
+    if (verts.some((v) => v.x >= box.minX && v.x <= box.maxX && v.y >= box.minY && v.y <= box.maxY)) {
+      return true;
+    }
+    // Any polygon edge crosses box edge
+    for (let i = 0; i < verts.length; i++) {
+      const v1 = verts[i];
+      const v2 = verts[(i + 1) % verts.length];
+      if (boxEdges.some(([e1, e2]) => lineIntersectsLine(v1, v2, e1, e2))) {
+        return true;
+      }
+    }
+    // Box corner inside polygon
+    if (isPointInPolygon(tl, verts) || isPointInPolygon(tr, verts)) {
+      return true;
+    }
+    return false;
+  }
+
+  if (ent.type === 'circle') {
+    // Center inside
+    if (ent.cx >= box.minX && ent.cx <= box.maxX && ent.cy >= box.minY && ent.cy <= box.maxY) {
+      return true;
+    }
+    // Any box edge intersects circle
+    return boxEdges.some(([e1, e2]) => distPointToSegment({ x: ent.cx, y: ent.cy }, e1, e2).dist <= ent.r);
+  }
+
+  // For rect, text, point, symbol: standard bounding box overlap is true
+  return true;
+}
+
+/**
+ * CAD Purge: Cleans degenerate entities (length 0 lines, 0 radius circles, empty text)
+ */
+export function purgeEntities(entities: CadEntity[]): {
+  cleaned: CadEntity[];
+  removedCount: number;
+  details: string;
+} {
+  const initialCount = entities.length;
+  const seenPoints = new Set<string>();
+
+  const cleaned = entities.filter((ent) => {
+    if (ent.type === 'line' || ent.type === 'measure') {
+      const len = Math.hypot(ent.x2 - ent.x1, ent.y2 - ent.y1);
+      return len >= 0.1; // remove zero-length lines
+    }
+    if (ent.type === 'circle' || ent.type === 'arc') {
+      return ent.r >= 0.1;
+    }
+    if (ent.type === 'polygon') {
+      if (ent.points && ent.points.length < 3) return false;
+      if (!ent.points && (ent.sides < 3 || ent.r < 0.1)) return false;
+      return true;
+    }
+    if (ent.type === 'rect') {
+      return Math.abs(ent.w) >= 0.1 && Math.abs(ent.h) >= 0.1;
+    }
+    if (ent.type === 'point') {
+      const key = `${Math.round(ent.x * 100) / 100},${Math.round(ent.y * 100) / 100},${ent.layer || ''}`;
+      if (seenPoints.has(key)) return false; // remove duplicate points
+      seenPoints.add(key);
+      return true;
+    }
+    if (ent.type === 'text') {
+      const plain = (ent.text || ent.textHtml || '').replace(/<[^>]+>/g, '').trim();
+      return plain.length > 0;
+    }
+    return true;
+  });
+
+  const removedCount = initialCount - cleaned.length;
+  const details =
+    removedCount > 0
+      ? `Lámina purgada: se eliminaron ${removedCount} elemento(s) nulo(s) o duplicado(s).`
+      : 'La lámina ya está limpia: no se encontraron elementos nulos ni duplicados.';
+
+  return { cleaned, removedCount, details };
 }

@@ -114,6 +114,8 @@ export interface PolygonEntity extends BaseEntity {
   r: number;
   sides: number;
   angle: number; // in radians
+  points?: Point2D[];
+  isIrregular?: boolean;
 }
 
 export interface CurveEntity extends BaseEntity {

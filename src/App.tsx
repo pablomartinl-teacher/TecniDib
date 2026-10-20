@@ -21,6 +21,7 @@ import {
   GridMode,
   Isoplane,
   EllipseEntity,
+  PolygonEntity,
 } from './cad/types.ts';
 import {
   distance,
@@ -40,6 +41,13 @@ import {
   createIsometricBox,
   createDiedricoTemplate,
   smoothPath,
+  detectClosedCycleFromSegments,
+  calculatePolygonArea,
+  calculatePolygonPerimeter,
+  getEntityPolygonVertices,
+  isEntityInsideBox,
+  isEntityCrossingBox,
+  purgeEntities,
 } from './cad/geometry.ts';
 import {
   createDefaultProject,
@@ -66,6 +74,8 @@ import { InspectorPanel } from './components/InspectorPanel.tsx';
 import { CommandBar } from './components/CommandBar.tsx';
 import { PlayerBar } from './components/PlayerBar.tsx';
 import { PageManagerModal } from './components/PageManagerModal.tsx';
+import { ContextMenu } from './components/ContextMenu.tsx';
+import { ShortcutsModal } from './components/ShortcutsModal.tsx';
 
 export default function App() {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -140,6 +150,9 @@ export default function App() {
   const [editingTextEntity, setEditingTextEntity] = useState<TextEntity | null>(null);
   const [isStudyOpen, setIsStudyOpen] = useState<boolean>(false);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState<boolean>(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   // Text Box Handle Resize State (vertical & horizontal)
   interface TextResizeState {
@@ -457,6 +470,14 @@ export default function App() {
 
       // Escape key cancels action, clears keyboard input, or closes modals
       if (e.key === 'Escape') {
+        if (contextMenuPos) {
+          setContextMenuPos(null);
+          return;
+        }
+        if (isShortcutsOpen) {
+          setIsShortcutsOpen(false);
+          return;
+        }
         if (keyboardInput !== '') {
           setKeyboardInput('');
           setSaveStatus('Medida cancelada');
@@ -470,6 +491,75 @@ export default function App() {
         else if (isStudyOpen) setIsStudyOpen(false);
         else if (isPageManagerOpen) setIsPageManagerOpen(false);
         else cancelAction();
+        return;
+      }
+
+      // Tab or F11 to toggle Focus Mode / Fullscreen Canvas
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        setIsFocusMode((prev) => !prev);
+        return;
+      }
+
+      // ? or F1 for Shortcuts Cheat Sheet
+      if (e.key === '?' || e.key === 'F1') {
+        e.preventDefault();
+        setIsShortcutsOpen(true);
+        return;
+      }
+
+      // F8 for Ortho mode
+      if (e.key === 'F8') {
+        e.preventDefault();
+        setOrthoMode((prev) => !prev);
+        setSaveStatus(`📐 Modo Ortogonal: ${!orthoMode ? 'ACTIVADO' : 'DESACTIVADO'}`);
+        setTimeout(() => setSaveStatus(''), 1500);
+        return;
+      }
+
+      // F9 for Snap magnet
+      if (e.key === 'F9') {
+        e.preventDefault();
+        setSnapEnabled((prev) => !prev);
+        setSaveStatus(`🧲 Imán Snap: ${!snapEnabled ? 'ACTIVADO' : 'DESACTIVADO'}`);
+        setTimeout(() => setSaveStatus(''), 1500);
+        return;
+      }
+
+      // F7 for Grid snap
+      if (e.key === 'F7') {
+        e.preventDefault();
+        setGridSnapEnabled((prev) => !prev);
+        setSaveStatus(`▦ Rejilla Métrica: ${!gridSnapEnabled ? 'ACTIVADA' : 'DESACTIVADA'}`);
+        setTimeout(() => setSaveStatus(''), 1500);
+        return;
+      }
+
+      // Ctrl + D to Duplicate Selection
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        if (selectedEntities.length > 0) {
+          const t = Date.now();
+          const clones = selectedEntities.map((ent, idx) => {
+            const c = JSON.parse(JSON.stringify(ent));
+            c.id = t + idx;
+            if (c.type === 'line' || c.type === 'measure') {
+              c.x1 += 8; c.y1 += 8; c.x2 += 8; c.y2 += 8;
+            } else if (c.type === 'circle' || c.type === 'polygon' || c.type === 'arc') {
+              c.cx += 8; c.cy += 8;
+              if (c.type === 'polygon' && Array.isArray(c.points)) {
+                c.points = c.points.map((pt: any) => ({ x: pt.x + 8, y: pt.y + 8 }));
+              }
+            } else if (c.type === 'point' || c.type === 'rect' || c.type === 'text' || c.type === 'tag') {
+              c.x += 8; c.y += 8;
+            }
+            return c;
+          });
+          pushState([...entities, ...clones]);
+          setSelectedEntities(clones);
+          setSaveStatus(`📋 ${clones.length} elemento(s) duplicado(s)`);
+          setTimeout(() => setSaveStatus(''), 1500);
+        }
         return;
       }
 
@@ -551,9 +641,15 @@ export default function App() {
           t: 'text',
           e: 'tag',
           b: 'eraser',
-          i: 'isocircle',
+          i: 'bisectriz',
           j: 'isobox',
-          d: 'diedrico_template',
+          y: 'isocircle',
+          d: 'mediatriz',
+          k: 'tales',
+          n: 'trim',
+          u: 'rect',
+          q: 'tape_measure',
+          z: 'diedrico_template',
         };
         if (toolMap[char]) {
           cancelAction();
@@ -792,6 +888,46 @@ export default function App() {
         layer: activeLayerId,
         style: { ...currentStyle },
       };
+
+      // Detect if completing this segment closes a shape
+      const existingLines = entities.filter(
+        (e): e is LineEntity => e.type === 'line' && (e.layer === undefined || e.layer === activeLayerId)
+      );
+      const cycle = detectClosedCycleFromSegments(newLine, existingLines, 2.5);
+
+      if (cycle && cycle.vertices.length >= 3) {
+        const closedPoly: PolygonEntity = {
+          type: 'polygon',
+          id: t,
+          cx: cycle.centroid.x,
+          cy: cycle.centroid.y,
+          r: cycle.radius,
+          sides: cycle.vertices.length,
+          angle: 0,
+          points: cycle.vertices,
+          isIrregular: true,
+          layer: activeLayerId,
+          style: {
+            ...currentStyle,
+            fillColor:
+              currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== 'transparent'
+                ? currentStyle.fillColor
+                : '#38bdf8',
+            opacity: currentStyle.opacity ?? 0.35,
+          },
+        };
+        const remaining = entities.filter((e) => !cycle.segmentIds.includes(e.id));
+        pushState([...remaining, closedPoly]);
+        setSelectedEntities([closedPoly]);
+        setShowInspector(true);
+        setSaveStatus(
+          `✨ ¡Forma cerrada detectada! Polígono irregular de ${cycle.vertices.length} lados creado. Modifica su trazo y relleno aquí.`
+        );
+        setTimeout(() => setSaveStatus(''), 4500);
+        cancelAction();
+        return;
+      }
+
       updatedEntities.push(newLine);
       pushState(updatedEntities);
       setSaveStatus(`📏 Segmento fijado: ${val.toFixed(2)} mm`);
@@ -1666,15 +1802,57 @@ export default function App() {
       }
 
       if (['line', 'parallel', 'perpendicular', 'line_angle'].includes(currentTool) && p1) {
-        updated.push({
+        const newLine: LineEntity = {
           type: 'line',
           id: t,
           x1: p1.x,
           y1: p1.y,
           x2: finalX,
           y2: finalY,
+          layer: activeLayerId,
           style: { ...currentStyle },
-        });
+        };
+
+        // Detect if completing this segment closes a shape with existing segments
+        const existingLines = entities.filter(
+          (e): e is LineEntity => e.type === 'line' && (e.layer === undefined || e.layer === activeLayerId)
+        );
+        const cycle = detectClosedCycleFromSegments(newLine, existingLines, 2.5);
+
+        if (cycle && cycle.vertices.length >= 3) {
+          const closedPoly: PolygonEntity = {
+            type: 'polygon',
+            id: t,
+            cx: cycle.centroid.x,
+            cy: cycle.centroid.y,
+            r: cycle.radius,
+            sides: cycle.vertices.length,
+            angle: 0,
+            points: cycle.vertices,
+            isIrregular: true,
+            layer: activeLayerId,
+            style: {
+              ...currentStyle,
+              fillColor:
+                currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== 'transparent'
+                  ? currentStyle.fillColor
+                  : '#38bdf8',
+              opacity: currentStyle.opacity ?? 0.35,
+            },
+          };
+          const remaining = entities.filter((e) => !cycle.segmentIds.includes(e.id));
+          pushState([...remaining, closedPoly]);
+          setSelectedEntities([closedPoly]);
+          setShowInspector(true);
+          setSaveStatus(
+            `✨ ¡Forma cerrada detectada! Polígono irregular de ${cycle.vertices.length} lados creado. Modifica su trazo y relleno aquí.`
+          );
+          setTimeout(() => setSaveStatus(''), 4500);
+          cancelAction();
+          return;
+        } else {
+          updated.push(newLine);
+        }
       } else if (currentTool === 'circle' && p1) {
         const r = Math.hypot(finalX - p1.x, finalY - p1.y);
         updated.push({
@@ -1829,14 +2007,29 @@ export default function App() {
       return;
     }
 
-    // Box selection marquee
+    // CAD Box selection marquee: Window (Left -> Right: Blue solid) vs Crossing (Right -> Left: Green dashed)
     if (currentTool === 'cursor' && isBoxSelecting && boxStart) {
       const minX = Math.min(boxStart.x, pos.x);
       const maxX = Math.max(boxStart.x, pos.x);
       const minY = Math.min(boxStart.y, pos.y);
       const maxY = Math.max(boxStart.y, pos.y);
+      const isCrossing = pos.x < boxStart.x;
+      const w = maxX - minX;
+      const h = maxY - minY;
+
+      const fill = isCrossing ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+      const stroke = isCrossing ? '#10b981' : '#3b82f6';
+      const dash = isCrossing ? 'stroke-dasharray="2,2"' : '';
+      const modeLabel = isCrossing ? 'Captura (Cruce)' : 'Ventana (Dentro 100%)';
+
       setGhostHtml(
-        `<rect x="${minX}" y="${minY}" width="${maxX - minX}" height="${maxY - minY}" fill="rgba(2, 132, 199, 0.15)" stroke="#0284c7" stroke-dasharray="3,3" stroke-width="0.3"/>`
+        `<g pointer-events="none">
+          <rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}" stroke-width="0.35" ${dash}/>
+          <g transform="translate(${minX + 2}, ${minY + 3.8})">
+            <rect x="0" y="-3.2" width="${modeLabel.length * 1.8 + 4}" height="4.4" rx="0.8" fill="#0f172a" opacity="0.9"/>
+            <text x="2" y="-0.3" fill="${stroke}" font-size="2.4" font-family="sans-serif" font-weight="bold">${modeLabel}</text>
+          </g>
+        </g>`
       );
       return;
     }
@@ -2108,37 +2301,21 @@ export default function App() {
         const maxX = Math.max(boxStart.x, pos.x);
         const minY = Math.min(boxStart.y, pos.y);
         const maxY = Math.max(boxStart.y, pos.y);
+        const isCrossing = pos.x < boxStart.x;
+        const box = { minX, maxX, minY, maxY };
 
         const newlySelected = entities.filter((ent) => {
-          let ex = 0;
-          let ey = 0;
-          if (ent.type === 'line' || ent.type === 'measure') {
-            ex = (ent.x1 + ent.x2) / 2;
-            ey = (ent.y1 + ent.y2) / 2;
-          } else if (ent.type === 'circle' || ent.type === 'polygon' || ent.type === 'arc') {
-            ex = ent.cx;
-            ey = ent.cy;
-          } else if (
-            ent.type === 'point' ||
-            ent.type === 'rect' ||
-            ent.type === 'text' ||
-            ent.type === 'tag' ||
-            ent.type === 'symbol' ||
-            ent.type === 'image'
-          ) {
-            ex = ent.x;
-            ey = ent.y;
-          } else if (ent.type === 'curve' || ent.type === 'fill') {
-            ex = ent.points[0]?.x || 0;
-            ey = ent.points[0]?.y || 0;
-          }
-          return ex >= minX && ex <= maxX && ey >= minY && ey <= maxY;
+          return isCrossing ? isEntityCrossingBox(ent, box) : isEntityInsideBox(ent, box);
         });
 
         setSelectedEntities(newlySelected);
         setIsBoxSelecting(false);
         setGhostHtml('');
         setIsDrawing(false);
+        setSaveStatus(
+          `🎯 ${newlySelected.length} elemento(s) (${isCrossing ? 'Captura / Cruce' : 'Ventana / 100% dentro'})`
+        );
+        setTimeout(() => setSaveStatus(''), 2000);
       } else {
         // Drag move completed, save history state
         pushState([...entities]);
@@ -2213,23 +2390,213 @@ export default function App() {
     }
   };
 
+  const duplicateSelectedEntities = () => {
+    if (selectedEntities.length === 0) return;
+    const t = Date.now();
+    const clones = selectedEntities.map((e, i) => {
+      const c = JSON.parse(JSON.stringify(e));
+      c.id = t + i;
+      if (c.type === 'line' || c.type === 'measure') {
+        c.x1 += 8; c.y1 += 8; c.x2 += 8; c.y2 += 8;
+      } else if (c.type === 'circle' || c.type === 'polygon' || c.type === 'arc') {
+        c.cx += 8; c.cy += 8;
+        if (c.type === 'polygon' && Array.isArray(c.points)) {
+          c.points = c.points.map((pt: any) => ({ x: pt.x + 8, y: pt.y + 8 }));
+        }
+      } else if (c.type === 'point' || c.type === 'rect' || c.type === 'text' || c.type === 'tag') {
+        c.x += 8; c.y += 8;
+      }
+      return c;
+    });
+    pushState([...entities, ...clones]);
+    setSelectedEntities(clones);
+    setSaveStatus(`📋 ${clones.length} elemento(s) duplicado(s)`);
+    setTimeout(() => setSaveStatus(''), 1500);
+  };
+
+  const deleteSelectedEntities = () => {
+    if (selectedEntities.length === 0) return;
+    const ids = new Set(selectedEntities.map((s) => s.id));
+    pushState(entities.filter((e) => !ids.has(e.id)));
+    setSelectedEntities([]);
+    setSaveStatus('🗑️ Elementos eliminados');
+    setTimeout(() => setSaveStatus(''), 1500);
+  };
+
+  const handlePurge = () => {
+    const res = purgeEntities(entities);
+    if (res.removedCount > 0) {
+      pushState(res.cleaned);
+      setSelectedEntities([]);
+    }
+    setSaveStatus(res.details);
+    setTimeout(() => setSaveStatus(''), 2500);
+  };
+
+  const handleBringToFront = () => {
+    if (selectedEntities.length === 0) return;
+    const selectedIds = new Set(selectedEntities.map((s) => s.id));
+    const nonSelected = entities.filter((e) => !selectedIds.has(e.id));
+    const selected = entities.filter((e) => selectedIds.has(e.id));
+    pushState([...nonSelected, ...selected]);
+    setSaveStatus('⏫ Traído al frente');
+    setTimeout(() => setSaveStatus(''), 1200);
+  };
+
+  const handleSendToBack = () => {
+    if (selectedEntities.length === 0) return;
+    const selectedIds = new Set(selectedEntities.map((s) => s.id));
+    const nonSelected = entities.filter((e) => !selectedIds.has(e.id));
+    const selected = entities.filter((e) => selectedIds.has(e.id));
+    pushState([...selected, ...nonSelected]);
+    setSaveStatus('⏬ Enviado al fondo');
+    setTimeout(() => setSaveStatus(''), 1200);
+  };
+
+  const handleMirrorSelected = () => {
+    if (selectedEntities.length === 0) return;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    selectedEntities.forEach((ent) => {
+      if (ent.type === 'line' || ent.type === 'measure') {
+        minX = Math.min(minX, ent.x1, ent.x2);
+        maxX = Math.max(maxX, ent.x1, ent.x2);
+      } else if (ent.type === 'circle' || ent.type === 'arc' || ent.type === 'polygon') {
+        minX = Math.min(minX, ent.cx - ent.r);
+        maxX = Math.max(maxX, ent.cx + ent.r);
+      } else if (ent.type === 'rect' || ent.type === 'text' || ent.type === 'point') {
+        minX = Math.min(minX, ent.x);
+        maxX = Math.max(maxX, ent.x + ((ent as any).w || 0));
+      }
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+    const midX = (minX + maxX) / 2;
+    const selectedIds = new Set(selectedEntities.map((s) => s.id));
+    const mirrored = entities.map((ent) => {
+      if (!selectedIds.has(ent.id)) return ent;
+      const c = JSON.parse(JSON.stringify(ent));
+      if (c.type === 'line' || c.type === 'measure') {
+        c.x1 = 2 * midX - c.x1;
+        c.x2 = 2 * midX - c.x2;
+      } else if (c.type === 'circle' || c.type === 'arc' || c.type === 'polygon') {
+        c.cx = 2 * midX - c.cx;
+        if (c.type === 'polygon' && Array.isArray(c.points)) {
+          c.points = c.points.map((pt: any) => ({ x: 2 * midX - pt.x, y: pt.y }));
+        }
+      } else if (c.type === 'rect' || c.type === 'text' || c.type === 'point' || c.type === 'tag') {
+        c.x = 2 * midX - c.x - ((c as any).w || 0);
+      }
+      return c;
+    });
+    pushState(mirrored);
+    setSelectedEntities(mirrored.filter((e) => selectedIds.has(e.id)));
+    setSaveStatus('🪞 Simetría horizontal aplicada');
+    setTimeout(() => setSaveStatus(''), 1500);
+  };
+
+  const handleUngroupSelected = () => {
+    const poly = selectedEntities.find((e) => e.type === 'polygon') as PolygonEntity | undefined;
+    if (!poly) return;
+    const pts = getEntityPolygonVertices(poly);
+    if (pts.length < 2) return;
+    const t = Date.now();
+    const newSegments: LineEntity[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const pA = pts[i];
+      const pB = pts[(i + 1) % pts.length];
+      newSegments.push({
+        id: t + i,
+        type: 'line',
+        x1: pA.x,
+        y1: pA.y,
+        x2: pB.x,
+        y2: pB.y,
+        layer: poly.layer || activeLayerId,
+        style: {
+          width: poly.style.width || 0.5,
+          color: poly.style.color || '#000000',
+          dash: poly.style.dash || 'none',
+          marker: 'none',
+        },
+      });
+    }
+    const nextEntities = entities.filter((e) => e.id !== poly.id).concat(newSegments);
+    pushState(nextEntities);
+    setSelectedEntities(newSegments);
+    setSaveStatus(`✂️ Polígono desagrupado en ${newSegments.length} segmentos`);
+    setTimeout(() => setSaveStatus(''), 2000);
+  };
+
+  const handleClosePolygonFromSelected = () => {
+    const selectedLines = selectedEntities.filter(
+      (e): e is LineEntity => e.type === 'line' || e.type === 'measure'
+    );
+    if (selectedLines.length < 2) return;
+
+    // Connect segments into vertex chain
+    const endpoints: Point2D[] = [];
+    selectedLines.forEach((l) => {
+      endpoints.push({ x: l.x1, y: l.y1 });
+      endpoints.push({ x: l.x2, y: l.y2 });
+    });
+    // Remove nearly duplicate endpoints to form polygon vertices
+    const uniqueVerts: Point2D[] = [];
+    endpoints.forEach((pt) => {
+      if (!uniqueVerts.some((u) => Math.hypot(u.x - pt.x, u.y - pt.y) < 2.0)) {
+        uniqueVerts.push(pt);
+      }
+    });
+
+    if (uniqueVerts.length >= 3) {
+      const t = Date.now();
+      const avgX = uniqueVerts.reduce((sum, v) => sum + v.x, 0) / uniqueVerts.length;
+      const avgY = uniqueVerts.reduce((sum, v) => sum + v.y, 0) / uniqueVerts.length;
+      const r = Math.max(...uniqueVerts.map((v) => Math.hypot(v.x - avgX, v.y - avgY)));
+
+      const newPoly: PolygonEntity = {
+        type: 'polygon',
+        id: t,
+        cx: avgX,
+        cy: avgY,
+        r: Math.max(5, r),
+        sides: uniqueVerts.length,
+        angle: 0,
+        points: uniqueVerts,
+        isIrregular: true,
+        layer: activeLayerId,
+        style: {
+          ...currentStyle,
+          fillColor:
+            currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== 'transparent'
+              ? currentStyle.fillColor
+              : '#38bdf8',
+          opacity: currentStyle.opacity ?? 0.35,
+        },
+      };
+
+      const selectedIds = new Set(selectedLines.map((l) => l.id));
+      const remaining = entities.filter((e) => !selectedIds.has(e.id));
+      pushState([...remaining, newPoly]);
+      setSelectedEntities([newPoly]);
+      setSaveStatus(`🔄 Polígono cerrado creado con ${uniqueVerts.length} vértices`);
+      setTimeout(() => setSaveStatus(''), 2500);
+    }
+  };
+
   const handleContextMenu = (e: React.MouseEvent<SVGSVGElement>) => {
     e.preventDefault();
     if (isDrawing) {
       cancelAction();
-    } else {
-      const pos = getCanvasCoords(e);
-      const hit = getHitEntity(pos, entities, 6);
-      if (hit) {
-        if (hit.type === 'text') {
-          setEditingTextEntity(hit as TextEntity);
-          setIsRichTextOpen(true);
-        } else {
-          setEditingEntity(hit);
-          setIsEditOpen(true);
-        }
+      return;
+    }
+    const pos = getCanvasCoords(e);
+    const hit = getHitEntity(pos, entities, 6);
+    if (hit) {
+      if (!selectedEntities.some((s) => s.id === hit.id)) {
+        setSelectedEntities([hit]);
       }
     }
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
   };
 
   const handleDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -2494,7 +2861,8 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#121316] text-neutral-200 font-sans">
       {/* 1. Header Navigation Bar */}
-      <TopBar
+      {!isFocusMode && (
+        <TopBar
         sheetSize={currentPage.sheetSize}
         onChangeSheetSize={(newSize) => {
           setProject((prev) => {
@@ -2595,13 +2963,63 @@ export default function App() {
         }}
         onOpenStudyModal={() => setIsStudyOpen(true)}
         saveStatus={saveStatus}
+        onPurge={handlePurge}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        isFocusMode={isFocusMode}
+        onToggleFocusMode={() => setIsFocusMode((p) => !p)}
       />
+      )}
+
+      {/* Floating Exit Button for Focus Mode */}
+      {isFocusMode && (
+        <div className="absolute top-3 right-4 z-50 flex items-center gap-2 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-lg shadow-2xl text-xs text-slate-200 animate-in fade-in">
+          <span className="text-sky-400 font-semibold flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Modo Enfoque
+          </span>
+          <button
+            onClick={() => setIsFocusMode(false)}
+            className="px-2 py-0.5 bg-sky-600 hover:bg-sky-500 text-white rounded font-medium transition text-[11px]"
+          >
+            Salir [Tab]
+          </button>
+        </div>
+      )}
 
       {/* 2. Precision & Line Property Bar */}
+      {!isFocusMode && (
       <PropertyBar
         currentTool={currentTool}
-        style={currentStyle}
-        onChangeStyle={(newStyle) => setCurrentStyle((prev) => ({ ...prev, ...newStyle }))}
+        style={selectedEntities.length === 1 ? { ...currentStyle, ...selectedEntities[0].style } : currentStyle}
+        onChangeStyle={(newStyle) => {
+          setCurrentStyle((prev) => ({ ...prev, ...newStyle }));
+          if (selectedEntities.length > 0) {
+            const selIds = new Set(selectedEntities.map((s) => s.id));
+            const updated = allEntities.map((ent) => {
+              if (selIds.has(ent.id)) {
+                return {
+                  ...ent,
+                  style: {
+                    ...ent.style,
+                    ...newStyle,
+                  },
+                };
+              }
+              return ent;
+            });
+            pushState(updated);
+            setSelectedEntities((prev) =>
+              prev.map((s) => ({
+                ...s,
+                style: {
+                  ...s.style,
+                  ...newStyle,
+                },
+              }))
+            );
+          }
+        }}
+        selectedCount={selectedEntities.length}
         snapEnabled={snapEnabled}
         onToggleSnap={() => setSnapEnabled((prev) => !prev)}
         gridSnapEnabled={gridSnapEnabled}
@@ -2621,6 +3039,7 @@ export default function App() {
         paperTheme={paperTheme}
         onChangePaperTheme={setPaperTheme}
       />
+      )}
 
       {/* 3. Main Workspace: ToolBar + Canvas + Overlays + Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
@@ -2651,6 +3070,9 @@ export default function App() {
             cursorPos={coords}
             showRulers={true}
             keyboardInput={keyboardInput}
+            p1={p1}
+            currentTool={currentTool}
+            orthoMode={orthoMode}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -2700,6 +3122,9 @@ export default function App() {
                 c.x1 += 8; c.y1 += 8; c.x2 += 8; c.y2 += 8;
               } else if (c.type === 'circle' || c.type === 'polygon' || c.type === 'arc') {
                 c.cx += 8; c.cy += 8;
+                if (c.type === 'polygon' && Array.isArray(c.points)) {
+                  c.points = c.points.map((pt: any) => ({ x: pt.x + 8, y: pt.y + 8 }));
+                }
               } else if (c.type === 'point' || c.type === 'rect' || c.type === 'text' || c.type === 'tag') {
                 c.x += 8; c.y += 8;
               }
@@ -2707,6 +3132,33 @@ export default function App() {
             });
             pushState([...allEntities, ...clones]);
             setSelectedEntities(clones);
+          }}
+          onUngroupPolygon={(poly) => {
+            const pts = getEntityPolygonVertices(poly);
+            const t = Date.now();
+            const segs: LineEntity[] = [];
+            for (let i = 0; i < pts.length; i++) {
+              const pA = pts[i];
+              const pB = pts[(i + 1) % pts.length];
+              segs.push({
+                type: 'line',
+                id: t + i,
+                x1: pA.x,
+                y1: pA.y,
+                x2: pB.x,
+                y2: pB.y,
+                layer: poly.layer,
+                style: {
+                  ...poly.style,
+                  fillColor: 'none',
+                },
+              });
+            }
+            const nextEntities = allEntities.filter((e) => e.id !== poly.id).concat(segs);
+            pushState(nextEntities);
+            setSelectedEntities(segs);
+            setSaveStatus(`✂️ Polígono desagrupado en ${segs.length} segmentos independientes.`);
+            setTimeout(() => setSaveStatus(''), 3000);
           }}
           onMirrorSelected={() => {
             setCurrentTool('mirror');
@@ -2814,6 +3266,14 @@ export default function App() {
             handleSaveToFile();
           } else if (trimmed === 'CLEAR') {
             if (confirm('¿Vaciar lámina?')) pushState([]);
+          } else if (trimmed === 'PURGE' || trimmed === 'PURGAR' || trimmed === 'LIMPIAR') {
+            handlePurge();
+          } else if (trimmed === 'HELP' || trimmed === 'AYUDA' || trimmed === '?') {
+            setIsShortcutsOpen(true);
+          } else if (trimmed === 'FULL' || trimmed === 'ENFOQUE' || trimmed === 'TAB') {
+            setIsFocusMode((p) => !p);
+          } else if (trimmed === 'DUP' || trimmed === 'DUPLICAR') {
+            duplicateSelectedEntities();
           }
           cancelAction();
         }}
@@ -2908,6 +3368,33 @@ export default function App() {
             cancelAction();
           }
         }}
+      />
+
+      {/* Canvas Right-Click Quick CAD Operations Menu */}
+      {contextMenuPos && (
+        <ContextMenu
+          x={contextMenuPos.x}
+          y={contextMenuPos.y}
+          selectedEntities={selectedEntities}
+          onClose={() => setContextMenuPos(null)}
+          onDuplicate={duplicateSelectedEntities}
+          onDelete={deleteSelectedEntities}
+          onUngroup={handleUngroupSelected}
+          onClosePolygon={handleClosePolygonFromSelected}
+          onMirror={handleMirrorSelected}
+          onBringToFront={handleBringToFront}
+          onSendToBack={handleSendToBack}
+          onPurge={handlePurge}
+          onResetZoom={() => setZoomLevel(95)}
+          onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          onCancelAction={cancelAction}
+        />
+      )}
+
+      {/* Technical Keyboard Shortcuts Cheat Sheet Modal */}
+      <ShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
       />
     </div>
   );

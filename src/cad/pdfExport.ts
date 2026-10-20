@@ -8,6 +8,7 @@ import type { CadEntity, PageDocument, SheetSize, EllipseEntity } from './types.
 import {
   calculateIsoDimension,
   getPolygonVertices,
+  getEntityPolygonVertices,
   getSvgArcPath,
   smoothPath,
 } from './geometry.ts';
@@ -114,7 +115,7 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
       }
 
       case 'polygon': {
-        const vertices = getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
+        const vertices = getEntityPolygonVertices(ent);
         const ptsStr = vertices.map((v) => `${v.x},${v.y}`).join(' ');
         out += `<polygon points="${ptsStr}" ${fillAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>`;
         break;

@@ -21,6 +21,7 @@ import {
   getSvgArcPath,
   smoothPath,
   getPolygonVertices,
+  getEntityPolygonVertices,
   calculateIsoDimension,
 } from '../cad/geometry.ts';
 
@@ -45,6 +46,9 @@ interface CadCanvasProps {
   cursorPos?: Point2D;
   showRulers?: boolean;
   keyboardInput?: string;
+  p1?: Point2D | null;
+  currentTool?: ToolType;
+  orthoMode?: boolean;
   onPointerDown: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerMove: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerUp: (e: React.PointerEvent<SVGSVGElement>) => void;
@@ -75,6 +79,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   cursorPos = { x: 0, y: 0 },
   showRulers = true,
   keyboardInput = '',
+  p1 = null,
+  currentTool = 'cursor',
+  orthoMode = false,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -279,17 +286,42 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       }
 
       case 'polygon': {
-        const vertices = getPolygonVertices(ent.cx, ent.cy, ent.r, ent.sides, ent.angle);
+        const vertices = getEntityPolygonVertices(ent);
         const ptsStr = vertices.map((v) => `${v.x},${v.y}`).join(' ');
+        const hasFill =
+          baseStyle.fillColor &&
+          baseStyle.fillColor !== 'none' &&
+          baseStyle.fillColor !== 'transparent';
+        const fillValue = hasFill ? baseStyle.fillColor : 'none';
+        const fillOpacity = baseStyle.opacity ?? (hasFill ? 0.75 : 0);
+
         return (
-          <polygon
-            key={ent.id}
-            points={ptsStr}
-            fill={baseStyle.fillColor && baseStyle.fillColor !== '#ffffff' ? baseStyle.fillColor : 'none'}
-            stroke={strokeColor}
-            strokeWidth={sw}
-            strokeDasharray={strokeDasharray}
-          />
+          <g key={ent.id}>
+            <polygon
+              points={ptsStr}
+              fill={fillValue}
+              fillOpacity={fillOpacity}
+              stroke={strokeColor}
+              strokeWidth={sw}
+              strokeDasharray={strokeDasharray}
+            />
+            {/* If selected, render vertex handles so user can clearly see the corners */}
+            {isSelected &&
+              vertices.map((v, i) => (
+                <rect
+                  key={i}
+                  x={v.x - 1.2}
+                  y={v.y - 1.2}
+                  width={2.4}
+                  height={2.4}
+                  fill="#0284c7"
+                  stroke="#ffffff"
+                  strokeWidth={0.4}
+                  rx={0.4}
+                  style={{ pointerEvents: 'none' }}
+                />
+              ))}
+          </g>
         );
       }
 
@@ -971,47 +1003,127 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           {/* Interactive Ghost Preview Layer */}
           <g id="layer-ghost" dangerouslySetInnerHTML={{ __html: ghostHtml }} />
 
-          {/* Snap Indicator HUD */}
-          {activeSnap && (
-            <g id="snap-indicator-group" pointerEvents="none">
-              <circle
-                cx={activeSnap.x}
-                cy={activeSnap.y}
-                r={2.5}
-                fill="rgba(16, 185, 129, 0.25)"
-                stroke="#10b981"
-                strokeWidth={0.6}
-              />
-              <line
-                x1={activeSnap.x - 4}
-                y1={activeSnap.y}
-                x2={activeSnap.x + 4}
-                y2={activeSnap.y}
-                stroke="#10b981"
-                strokeWidth={0.3}
-              />
-              <line
-                x1={activeSnap.x}
-                y1={activeSnap.y - 4}
-                x2={activeSnap.x}
-                y2={activeSnap.y + 4}
-                stroke="#10b981"
-                strokeWidth={0.3}
-              />
-              {activeSnap.label && (
-                <text
-                  x={activeSnap.x + 3.5}
-                  y={activeSnap.y - 3.5}
-                  fill="#10b981"
-                  fontSize={2.5}
-                  fontFamily="sans-serif"
-                  fontWeight="bold"
-                >
-                  {activeSnap.label}
-                </text>
-              )}
-            </g>
-          )}
+          {/* Enhanced Snap Indicator HUD with CAD Geometric Glyphs */}
+          {activeSnap && (() => {
+            const { x, y, type } = activeSnap;
+            let snapLabel = activeSnap.label || '';
+            if (!snapLabel) {
+              switch (type) {
+                case 'endpoint':
+                  snapLabel = 'Extremo';
+                  break;
+                case 'midpoint':
+                  snapLabel = 'Punto medio';
+                  break;
+                case 'center':
+                  snapLabel = 'Centro';
+                  break;
+                case 'intersection':
+                  snapLabel = 'Intersección';
+                  break;
+                case 'quadrant':
+                  snapLabel = 'Cuadrante';
+                  break;
+                case 'perpendicular':
+                  snapLabel = 'Perpendicular';
+                  break;
+                case 'grid':
+                  snapLabel = 'Rejilla';
+                  break;
+                default:
+                  snapLabel = 'Snap';
+              }
+            }
+
+            return (
+              <g id="snap-indicator-group" pointerEvents="none">
+                {/* Specific geometric snap glyphs */}
+                {type === 'endpoint' && (
+                  <rect
+                    x={x - 2.2}
+                    y={y - 2.2}
+                    width={4.4}
+                    height={4.4}
+                    fill="rgba(16, 185, 129, 0.25)"
+                    stroke="#10b981"
+                    strokeWidth={0.55}
+                  />
+                )}
+                {type === 'midpoint' && (
+                  <polygon
+                    points={`${x},${y - 2.8} ${x + 2.8},${y + 2.2} ${x - 2.8},${y + 2.2}`}
+                    fill="rgba(16, 185, 129, 0.25)"
+                    stroke="#10b981"
+                    strokeWidth={0.55}
+                  />
+                )}
+                {type === 'center' && (
+                  <g>
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={2.6}
+                      fill="rgba(6, 182, 212, 0.2)"
+                      stroke="#06b6d4"
+                      strokeWidth={0.55}
+                    />
+                    <line x1={x - 3.8} y1={y} x2={x + 3.8} y2={y} stroke="#06b6d4" strokeWidth={0.3} />
+                    <line x1={x} y1={y - 3.8} x2={x} y2={y + 3.8} stroke="#06b6d4" strokeWidth={0.3} />
+                  </g>
+                )}
+                {type === 'intersection' && (
+                  <g>
+                    <line x1={x - 2.8} y1={y - 2.8} x2={x + 2.8} y2={y + 2.8} stroke="#f59e0b" strokeWidth={0.65} />
+                    <line x1={x + 2.8} y1={y - 2.8} x2={x - 2.8} y2={y + 2.8} stroke="#f59e0b" strokeWidth={0.65} />
+                  </g>
+                )}
+                {type === 'quadrant' && (
+                  <polygon
+                    points={`${x},${y - 2.6} ${x + 2.6},${y} ${x},${y + 2.6} ${x - 2.6},${y}`}
+                    fill="rgba(16, 185, 129, 0.25)"
+                    stroke="#10b981"
+                    strokeWidth={0.55}
+                  />
+                )}
+                {type === 'perpendicular' && (
+                  <path
+                    d={`M ${x - 2.8} ${y} L ${x - 2.8} ${y - 2.8} L ${x} ${y - 2.8}`}
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth={0.6}
+                  />
+                )}
+                {(!type || type === 'grid') && (
+                  <circle cx={x} cy={y} r={1.6} fill="#38bdf8" stroke="#0284c7" strokeWidth={0.35} />
+                )}
+
+                {/* Floating label badge */}
+                <g transform={`translate(${x + 3.5}, ${y - 4})`}>
+                  <rect
+                    x={0}
+                    y={-3.2}
+                    width={snapLabel.length * 1.85 + 4}
+                    height={4.4}
+                    rx={0.8}
+                    fill="#0f172a"
+                    stroke="#10b981"
+                    strokeWidth={0.3}
+                    opacity={0.92}
+                  />
+                  <text
+                    x={2}
+                    y={-0.3}
+                    fill="#34d399"
+                    fontSize={2.5}
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                  >
+                    {snapLabel}
+                  </text>
+                </g>
+              </g>
+            );
+          })()}
 
           {/* Isometric Mode HUD Indicator */}
           {gridMode === 'isometric' && (
@@ -1036,6 +1148,49 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                 ISOPLANO: {isoplane === 'top' ? 'SUPERIOR' : isoplane === 'left' ? 'IZQUIERDO' : 'DERECHO'}
               </text>
             </g>
+          )}
+
+          {/* Dynamic Input / Cursor Live HUD (AutoCAD-Style HUD) */}
+          {p1 && !keyboardInput && (
+            (() => {
+              const dx = cursorPos.x - p1.x;
+              const dy = cursorPos.y - p1.y;
+              const dist = Math.hypot(dx, dy);
+              const rawAngle = Math.atan2(-dy, dx) * (180 / Math.PI);
+              const angle = (rawAngle + 360) % 360;
+
+              const badgeX = Math.min(sheetSize.w - 44, Math.max(4, cursorPos.x + 3.5));
+              const badgeY = Math.max(7, cursorPos.y - 7);
+
+              return (
+                <g pointerEvents="none" transform={`translate(${badgeX}, ${badgeY})`}>
+                  <rect
+                    x="0"
+                    y="0"
+                    width={orthoMode ? 46 : 38}
+                    height="6.2"
+                    rx="1.2"
+                    fill="rgba(15, 23, 42, 0.92)"
+                    stroke="#38bdf8"
+                    strokeWidth={0.35}
+                    filter="drop-shadow(0px 2px 4px rgba(0,0,0,0.5))"
+                  />
+                  <text
+                    x="2.5"
+                    y="4.4"
+                    fill="#f8fafc"
+                    fontSize="2.8"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                  >
+                    <tspan fill="#38bdf8">{dist.toFixed(1)}</tspan>
+                    <tspan fill="#94a3b8" fontSize="2.2"> mm </tspan>
+                    <tspan fill="#f59e0b">∠{angle.toFixed(0)}º</tspan>
+                    {orthoMode && <tspan fill="#34d399" fontSize="2.2"> [ORTO]</tspan>}
+                  </text>
+                </g>
+              );
+            })()
           )}
 
           {/* Live Keyboard Measure Input HUD */}

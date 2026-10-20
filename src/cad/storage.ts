@@ -283,18 +283,28 @@ export function normalizeEntity(ent: any): CadEntity {
         style,
       };
 
-    case 'polygon':
+    case 'polygon': {
+      const polygonPoints =
+        Array.isArray(ent.points) && ent.points.length >= 3
+          ? ent.points.map((p: any) => ({
+              x: typeof p.x === 'number' ? p.x : parseFloat(p.x) || 0,
+              y: typeof p.y === 'number' ? p.y : parseFloat(p.y) || 0,
+            }))
+          : undefined;
       return {
         type: 'polygon',
         id,
         cx: typeof ent.cx === 'number' ? ent.cx : parseFloat(ent.cx) || 0,
         cy: typeof ent.cy === 'number' ? ent.cy : parseFloat(ent.cy) || 0,
         r: typeof ent.r === 'number' && ent.r > 0 ? ent.r : parseFloat(ent.r) || 10,
-        sides: typeof ent.sides === 'number' && ent.sides >= 3 ? ent.sides : 5,
+        sides: polygonPoints ? polygonPoints.length : typeof ent.sides === 'number' && ent.sides >= 3 ? ent.sides : 5,
         angle: typeof ent.angle === 'number' ? ent.angle : parseFloat(ent.angle) || 0,
+        points: polygonPoints,
+        isIrregular: Boolean(ent.isIrregular || polygonPoints),
         layer,
         style,
       };
+    }
 
     case 'curve':
       return {

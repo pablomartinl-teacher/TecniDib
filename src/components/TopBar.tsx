@@ -24,6 +24,8 @@ import {
   Save,
   CheckCircle2,
   Layers,
+  Sparkles,
+  HelpCircle,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
@@ -64,6 +66,10 @@ interface TopBarProps {
   onTogglePlayer: () => void;
   onOpenStudyModal: () => void;
   saveStatus: string;
+  onPurge?: () => void;
+  onOpenShortcuts?: () => void;
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -102,6 +108,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   onTogglePlayer,
   onOpenStudyModal,
   saveStatus,
+  onPurge,
+  onOpenShortcuts,
+  isFocusMode = false,
+  onToggleFocusMode,
 }) => {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -124,10 +134,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="h-12 bg-[#1b1d24] border-b border-[#2d313d] flex items-center justify-between px-3 text-neutral-200 select-none z-30">
+    <header className="h-12 bg-[#1b1d24] border-b border-[#2d313d] flex items-center justify-between px-3 text-neutral-200 select-none z-30 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden gap-3">
       {/* Left side: Brand, Sheet format, Page navigation, Zoom */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 font-bold tracking-tight text-white mr-1">
+      <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+        <div className="flex items-center gap-1.5 font-bold tracking-tight text-white mr-1 shrink-0">
           <span className="p-1 bg-sky-600 rounded-md text-white shadow-sm flex items-center justify-center">
             <Compass className="w-4 h-4" />
           </span>
@@ -135,10 +145,10 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {/* Sheet Format Selector */}
-        <div className="flex items-center bg-[#13141a] rounded-lg border border-[#2d313d] p-0.5">
+        <div className="flex items-center bg-[#13141a] rounded-lg border border-[#2d313d] p-0.5 shrink-0">
           <button
             onClick={handleCustomSize}
-            className="px-2 py-1 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-[#252833] rounded transition flex items-center gap-1"
+            className="px-2 py-1 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-[#252833] rounded transition flex items-center gap-1 whitespace-nowrap"
             title="Cambiar dimensiones de la lámina"
           >
             📏 {sheetSize.w} x {sheetSize.h} mm
@@ -216,11 +226,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         </div>
 
-        {/* Coordinates HUD */}
-        <div className="hidden lg:flex items-center font-mono text-[11px] text-sky-400 bg-[#13141a] px-2 py-1 rounded-md border border-[#2d313d]">
-          X: {coords.x.toFixed(1)} mm, Y: {coords.y.toFixed(1)} mm
-        </div>
-
         {saveStatus && (
           <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -230,11 +235,11 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Right side: Tools, Imports, Exports & Study */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap ml-auto">
         {/* Virtual Escuadra/Cartabón Toggle */}
         <button
           onClick={onToggleInstruments}
-          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1 border ${
+          className={`px-2 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1 border ${
             showInstruments
               ? 'bg-amber-600 text-white border-amber-500 shadow-sm'
               : 'bg-[#22242c] text-neutral-300 hover:text-white border-[#333742]'
@@ -242,17 +247,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           title="Simulación didáctica de Escuadra y Cartabón"
         >
           <Compass className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Escuadra/Cartabón</span>
+          <span className="hidden xl:inline">Escuadra/Cartabón</span>
         </button>
 
         {/* Margins */}
         <button
           onClick={onOpenMarginsModal}
-          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-[#22242c] hover:bg-[#2d303b] border border-[#333742] text-neutral-200 transition flex items-center gap-1"
+          className="px-2 py-1 rounded-lg text-xs font-medium bg-[#22242c] hover:bg-[#2d303b] border border-[#333742] text-neutral-200 transition flex items-center gap-1"
           title="Generar márgenes y cajetín normalizado UNE"
         >
           <Square className="w-3.5 h-3.5 text-sky-400" />
-          <span className="hidden md:inline">Márgenes</span>
+          <span className="hidden xl:inline">Márgenes</span>
         </button>
 
         {/* PDF Base */}
@@ -262,7 +267,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           title="Cargar PDF como fondo de calco/enunciado"
         >
           <FileText className="w-3.5 h-3.5 text-amber-400" />
-          <span className="hidden xl:inline">PDF Base</span>
+          <span className="hidden 2xl:inline">PDF Base</span>
         </button>
         <input
           ref={pdfInputRef}
@@ -279,7 +284,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           title="Recortar y pegar figuras de ejercicios o PDFs"
         >
           <Scissors className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Recorte</span>
+          <span className="hidden xl:inline">Recorte</span>
         </button>
 
         {/* Project JSON Save/Open */}
@@ -363,7 +368,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
           title="Panel de Propiedades y Capas"
         >
-          <span>Capas / Inspector</span>
+          <Layers className="w-3.5 h-3.5" />
+          <span className="hidden xl:inline">Capas</span>
         </button>
 
         {/* Construction Player */}
@@ -376,7 +382,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
           title="Reproductor didáctico paso a paso"
         >
-          <span>Paso a Paso</span>
+          <span className="hidden xl:inline">Paso a Paso</span>
         </button>
 
         {/* PWA / App Install Button */}
@@ -391,6 +397,44 @@ export const TopBar: React.FC<TopBarProps> = ({
           <BookOpen className="w-3.5 h-3.5 text-sky-400" />
           <span className="hidden xl:inline">Estudio CAD</span>
         </button>
+
+        {/* CAD Purge / Limpiar lámina */}
+        {onPurge && (
+          <button
+            onClick={onPurge}
+            className="px-2 py-1 rounded-lg text-xs font-semibold bg-amber-950/40 hover:bg-amber-900/60 border border-amber-600/50 text-amber-300 transition flex items-center gap-1 shadow-sm"
+            title="Purgar lámina: eliminar segmentos de longitud 0, puntos huérfanos y textos vacíos"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden lg:inline">Purgar</span>
+          </button>
+        )}
+
+        {/* Shortcuts / Cheat Sheet */}
+        {onOpenShortcuts && (
+          <button
+            onClick={onOpenShortcuts}
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-sky-300 hover:bg-[#252833] transition"
+            title="Guía de Atajos de Teclado y Comandos (?)"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Focus Mode / Fullscreen Canvas */}
+        {onToggleFocusMode && (
+          <button
+            onClick={onToggleFocusMode}
+            className={`p-1.5 rounded-lg transition ${
+              isFocusMode
+                ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400'
+                : 'text-neutral-400 hover:text-white hover:bg-[#252833]'
+            }`}
+            title="Modo Enfoque / Pantalla Completa (Tab)"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        )}
 
         {/* New Canvas */}
         <button

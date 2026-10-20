@@ -16,8 +16,14 @@ import {
   MeasureEntity,
   TextEntity,
   EllipseEntity,
+  PolygonEntity,
   Isoplane,
 } from '../cad/types.ts';
+import {
+  getEntityPolygonVertices,
+  calculatePolygonArea,
+  calculatePolygonPerimeter,
+} from '../cad/geometry.ts';
 import {
   Layers,
   Sliders,
@@ -54,6 +60,7 @@ export interface InspectorPanelProps {
   totalEntities: number;
   showCompassArcs: boolean;
   onToggleCompassArcs: () => void;
+  onUngroupPolygon?: (entity: PolygonEntity) => void;
 }
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
@@ -74,6 +81,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   totalEntities,
   showCompassArcs,
   onToggleCompassArcs,
+  onUngroupPolygon,
 }) => {
   const [activeTab, setActiveTab] = useState<'properties' | 'layers'>('properties');
   const [newLayerName, setNewLayerName] = useState('');
@@ -485,10 +493,50 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       );
                     })()}
 
-                    {/* Common Style Controls */}
+                    {singleEntity.type === 'polygon' && (() => {
+                      const p = singleEntity as PolygonEntity;
+                      const vertices = getEntityPolygonVertices(p);
+                      const area = calculatePolygonArea(vertices);
+                      const perim = calculatePolygonPerimeter(vertices);
+                      const isIrreg = p.isIrregular || (p.points && p.points.length >= 3);
+                      return (
+                        <div className="space-y-2.5 bg-slate-800/40 p-3 rounded-lg border border-slate-800">
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-slate-400">Tipo de Polígono:</span>
+                            <span className="font-semibold text-sky-400">{isIrreg ? 'Polígono Irregular' : 'Polígono Regular'}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-800/70">
+                            <div>
+                              <span className="text-slate-400">Vértices:</span>{' '}
+                              <span className="font-mono text-cyan-300 font-semibold">{vertices.length} lados</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">Perímetro:</span>{' '}
+                              <span className="font-mono text-emerald-400 font-semibold">{perim.toFixed(2)} mm</span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-800/70">
+                            <span className="text-slate-400">Superficie / Área:</span>
+                            <span className="font-mono text-amber-400 font-bold">{area.toFixed(2)} mm²</span>
+                          </div>
+                          {onUngroupPolygon && (
+                            <button
+                              type="button"
+                              onClick={() => onUngroupPolygon(p)}
+                              className="w-full mt-2 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-sky-300 rounded border border-slate-700 text-[11px] flex items-center justify-center gap-1.5 transition"
+                              title="Convertir este polígono de nuevo en segmentos individuales de línea"
+                            >
+                              <span>✂️ Desagrupar a segmentos sueltos</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Common Style Controls (Trazo y Relleno) */}
                     <div className="space-y-3 pt-2 border-t border-slate-800">
                       <div>
-                        <label className="text-slate-400 text-[11px] block mb-1">Grosor de plumilla (UNE mm):</label>
+                        <label className="text-slate-400 text-[11px] block mb-1">Grosor de plumilla / trazo (UNE mm):</label>
                         <div className="grid grid-cols-4 gap-1">
                           {standardWidths.map((w) => (
                             <button
@@ -507,7 +555,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* Color & Dash */}
+                      {/* Color de Trazo & Tipo de Línea */}
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-slate-400 text-[11px] block mb-1">Color de trazo:</label>
@@ -527,7 +575,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                         </div>
 
                         <div>
-                          <label className="text-slate-400 text-[11px] block mb-1">Tipo de línea:</label>
+                          <label className="text-slate-400 text-[11px] block mb-1">Tipo de trazo:</label>
                           <select
                             value={singleEntity.style.dash}
                             onChange={(e) =>
@@ -538,13 +586,113 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                             }
                             className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 text-[11px]"
                           >
-                            <option value="none">Continua</option>
-                            <option value="3,3">Discontinua (Oculta)</option>
-                            <option value="10,2,2,2">Trazo y punto (Ejes)</option>
-                            <option value="6,2">Guiones medios</option>
+                            <option value="none">Continua (Tipo A - Contornos vistos)</option>
+                            <option value="6,2">Trazos (Tipo E - Aristas ocultas)</option>
+                            <option value="10,2,2,2">Trazo y punto (Tipo G - Ejes y simetría)</option>
+                            <option value="3,3">Trazos finos (Tipo F - Contornos secundarios)</option>
                           </select>
                         </div>
                       </div>
+
+                      {/* Relleno para formas cerradas (Polígono, Rectángulo, Círculo, Relleno) */}
+                      {['polygon', 'rect', 'circle', 'fill'].includes(singleEntity.type) && (
+                        <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                          <label className="text-slate-400 text-[11px] block">Relleno de fondo:</label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded border border-slate-700 flex-1">
+                              <input
+                                type="color"
+                                value={
+                                  singleEntity.style.fillColor &&
+                                  singleEntity.style.fillColor !== 'none' &&
+                                  singleEntity.style.fillColor !== 'transparent'
+                                    ? singleEntity.style.fillColor
+                                    : '#38bdf8'
+                                }
+                                onChange={(e) =>
+                                  onUpdateEntity({
+                                    ...singleEntity,
+                                    style: {
+                                      ...singleEntity.style,
+                                      fillColor: e.target.value,
+                                      opacity: singleEntity.style.opacity ?? 0.8,
+                                    },
+                                  })
+                                }
+                                className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent"
+                              />
+                              <span className="font-mono text-[10px] text-slate-300 uppercase truncate">
+                                {singleEntity.style.fillColor &&
+                                singleEntity.style.fillColor !== 'none' &&
+                                singleEntity.style.fillColor !== 'transparent'
+                                  ? singleEntity.style.fillColor
+                                  : 'Sin relleno'}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const isTransparent =
+                                  !singleEntity.style.fillColor ||
+                                  singleEntity.style.fillColor === 'none' ||
+                                  singleEntity.style.fillColor === 'transparent';
+                                onUpdateEntity({
+                                  ...singleEntity,
+                                  style: {
+                                    ...singleEntity.style,
+                                    fillColor: isTransparent ? '#38bdf8' : 'none',
+                                    opacity: isTransparent ? 0.8 : 0,
+                                  },
+                                });
+                              }}
+                              className={`px-2 py-1 rounded text-[11px] border transition ${
+                                singleEntity.style.fillColor &&
+                                singleEntity.style.fillColor !== 'none' &&
+                                singleEntity.style.fillColor !== 'transparent'
+                                  ? 'bg-sky-950 text-sky-300 border-sky-700'
+                                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                              }`}
+                            >
+                              {singleEntity.style.fillColor &&
+                              singleEntity.style.fillColor !== 'none' &&
+                              singleEntity.style.fillColor !== 'transparent'
+                                ? '✓ Con Relleno'
+                                : 'Sin Relleno'}
+                            </button>
+                          </div>
+
+                          {/* Opacidad del relleno */}
+                          {singleEntity.style.fillColor &&
+                            singleEntity.style.fillColor !== 'none' &&
+                            singleEntity.style.fillColor !== 'transparent' && (
+                              <div className="flex items-center justify-between text-[11px] pt-1">
+                                <span className="text-slate-400">Opacidad de relleno:</span>
+                                <div className="flex gap-1">
+                                  {[0.25, 0.5, 0.75, 1.0].map((op) => (
+                                    <button
+                                      key={op}
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateEntity({
+                                          ...singleEntity,
+                                          style: { ...singleEntity.style, opacity: op },
+                                        })
+                                      }
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                                        (singleEntity.style.opacity ?? 0.8) === op
+                                          ? 'bg-sky-600 text-white border-sky-400 font-bold'
+                                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                      }`}
+                                    >
+                                      {Math.round(op * 100)}%
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Single entity action buttons */}

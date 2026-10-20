@@ -28,6 +28,7 @@ interface PropertyBarProps {
   onChangeSymbolType: (sym: SymbolType) => void;
   paperTheme: 'white' | 'blueprint' | 'dark' | 'cream';
   onChangePaperTheme: (theme: 'white' | 'blueprint' | 'dark' | 'cream') => void;
+  selectedCount?: number;
 }
 
 export const PropertyBar: React.FC<PropertyBarProps> = ({
@@ -52,10 +53,11 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
   onChangeSymbolType,
   paperTheme,
   onChangePaperTheme,
+  selectedCount = 0,
 }) => {
   return (
-    <div className="h-10 bg-[#16171d] border-b border-[#2d313d] flex items-center justify-between px-3 text-xs text-neutral-300 select-none z-20">
-      <div className="flex items-center gap-3">
+    <div className="h-10 bg-[#16171d] border-b border-[#2d313d] flex items-center justify-between px-3 text-xs text-neutral-300 select-none z-20 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden gap-3">
+      <div className="flex items-center gap-2.5 shrink-0">
         {/* Snap magnet toggle */}
         <button
           onClick={onToggleSnap}
@@ -71,16 +73,16 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
         </button>
 
         {/* Grid Snap & Pitch */}
-        <div className="flex items-center gap-1 bg-[#20222a] px-2 py-0.5 rounded-md border border-[#333744]">
+        <div className="flex items-center gap-1 bg-[#20222a] px-2 py-0.5 rounded-md border border-[#333744] shrink-0">
           <button
             onClick={onToggleGridSnap}
-            className={`flex items-center gap-1 p-1 rounded text-xs transition ${
+            className={`flex items-center gap-1 p-1 rounded text-xs transition whitespace-nowrap ${
               gridSnapEnabled ? 'text-sky-400 font-semibold' : 'text-neutral-400 hover:text-white'
             }`}
             title="Activar/Desactivar ajuste a la rejilla métrica"
           >
             <Grid className="w-3.5 h-3.5" />
-            <span>Rejilla</span>
+            <span className="whitespace-nowrap">Rejilla</span>
           </button>
           <select
             value={gridPitch}
@@ -96,14 +98,14 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
         </div>
 
         {/* Axonometric / Isometric Grid Mode Selector */}
-        <div className="flex items-center gap-1 bg-[#20222a] px-2 py-0.5 rounded-md border border-[#333744]">
+        <div className="flex items-center gap-1 bg-[#20222a] px-2 py-0.5 rounded-md border border-[#333744] shrink-0">
           <select
             value={gridMode}
             onChange={(e) => onChangeGridMode?.(e.target.value as GridMode)}
             className="bg-transparent text-[11px] text-sky-400 font-semibold outline-none cursor-pointer"
-            title="Tipo de Rejilla: Ortogonal o Axonométrica"
+            title="Sistema de Referencia: Cuadrícula Cartesiana o Axonometría"
           >
-            <option value="orthogonal">📐 Orto 90º</option>
+            <option value="orthogonal">📐 Cartesiana 90º</option>
             <option value="isometric">🔺 Isométrica 30º-150º</option>
             <option value="cavalier">📏 Caballera 45º</option>
           </select>
@@ -162,9 +164,16 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
 
         <div className="h-4 border-r border-[#2d313d]" />
 
-        {/* Color picker */}
-        <div className="flex items-center gap-1.5" title="Color de la línea / trazo">
-          <span className="text-neutral-400">Línea:</span>
+        {/* Selection indicator */}
+        {selectedCount > 0 && (
+          <span className="bg-sky-500/20 text-sky-400 text-[10px] px-2 py-0.5 rounded font-semibold border border-sky-500/40 animate-pulse">
+            {selectedCount === 1 ? '1 seleccionado' : `${selectedCount} seleccionados`}
+          </span>
+        )}
+
+        {/* Color picker (Trazo) */}
+        <div className="flex items-center gap-1.5" title="Color del trazo">
+          <span className="text-neutral-400">Trazo:</span>
           <div className="flex items-center gap-1">
             <input
               type="color"
@@ -175,16 +184,44 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
           </div>
         </div>
 
-        {/* Fill Color */}
-        <div className="flex items-center gap-1.5" title="Color de fondo o sombreado">
-          <span className="text-neutral-400">Fondo:</span>
+        {/* Fill Color (Relleno / Fondo) */}
+        <div className="flex items-center gap-1.5" title="Color de fondo o relleno de formas cerradas">
+          <span className="text-neutral-400">Relleno:</span>
           <div className="flex items-center gap-1">
             <input
               type="color"
-              value={style.fillColor || '#ffffff'}
+              value={
+                style.fillColor && style.fillColor !== 'none' && style.fillColor !== 'transparent'
+                  ? style.fillColor
+                  : '#38bdf8'
+              }
               onChange={(e) => onChangeStyle({ fillColor: e.target.value })}
               className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
             />
+            <button
+              type="button"
+              onClick={() => {
+                const isNone =
+                  !style.fillColor ||
+                  style.fillColor === 'none' ||
+                  style.fillColor === 'transparent';
+                onChangeStyle({ fillColor: isNone ? '#38bdf8' : 'none' });
+              }}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition border ${
+                style.fillColor &&
+                style.fillColor !== 'none' &&
+                style.fillColor !== 'transparent'
+                  ? 'bg-sky-950 text-sky-300 border-sky-700'
+                  : 'bg-[#20222a] text-neutral-400 border-[#333744] hover:text-white'
+              }`}
+              title="Activar/Desactivar relleno de figuras"
+            >
+              {style.fillColor &&
+              style.fillColor !== 'none' &&
+              style.fillColor !== 'transparent'
+                ? 'Con relleno'
+                : 'Sin relleno'}
+            </button>
           </div>
         </div>
 
@@ -213,10 +250,10 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
             onChange={(e) => onChangeStyle({ dash: e.target.value as DashStyle })}
             className="bg-[#20222a] text-white border border-[#333744] rounded px-1.5 py-0.5 text-xs"
           >
-            <option value="none">Continuo</option>
-            <option value="3,3">Discontinuo (Ocultas)</option>
-            <option value="10,2,2,2">Raya-Punto (Ejes)</option>
-            <option value="6,2">Raya amplia</option>
+            <option value="none">Continua (Tipo A)</option>
+            <option value="6,2">Trazos (Tipo E - Ocultas)</option>
+            <option value="10,2,2,2">Trazo y punto (Tipo G - Ejes)</option>
+            <option value="3,3">Trazos finos (Tipo F)</option>
           </select>
         </div>
 
@@ -269,7 +306,7 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
       </div>
 
       {/* Right side: Paper Theme Selector */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <span className="text-neutral-400 hidden xl:inline text-[11px]">Tema Lámina:</span>
         <div className="flex items-center bg-[#20222a] p-0.5 rounded-lg border border-[#333744] text-[11px]">
           <button
