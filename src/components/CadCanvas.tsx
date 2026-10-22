@@ -49,6 +49,8 @@ interface CadCanvasProps {
   p1?: Point2D | null;
   currentTool?: ToolType;
   orthoMode?: boolean;
+  isPlayerActive?: boolean;
+  isHandDrawn?: boolean;
   onPointerDown: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerMove: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerUp: (e: React.PointerEvent<SVGSVGElement>) => void;
@@ -82,6 +84,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   p1 = null,
   currentTool = 'cursor',
   orthoMode = false,
+  isPlayerActive = false,
+  isHandDrawn = true,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -124,12 +128,15 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   };
 
   // Render an entity into SVG JSX
-  const renderEntity = (ent: CadEntity) => {
+  const renderEntity = (ent: CadEntity, index: number) => {
     if (hiddenLayers && ent.layer && hiddenLayers.has(ent.layer)) {
       return null;
     }
     const isSelected = selectedEntities.some((e) => e.id === ent.id);
     const isRef = referenceLine?.id === ent.id;
+    const isLatestInPlayer = isPlayerActive && index === entities.length - 1;
+    const animClass = isLatestInPlayer ? 'animate-cad-draw' : '';
+    const handFilter = isHandDrawn ? 'url(#hand-drawn-sketch)' : undefined;
 
     const baseStyle = ent.style || {
       width: 0.5,
@@ -177,6 +184,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             markerStart={markerStart}
             markerEnd={markerEnd}
             strokeLinecap="round"
+            className={animClass}
+            filter={handFilter}
           />
         );
 
@@ -250,6 +259,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               stroke={strokeColor}
               strokeWidth={sw}
               strokeDasharray={strokeDasharray}
+              className={animClass}
+              filter={handFilter}
             />
             {/* Standard center mark cross */}
             <line
@@ -281,6 +292,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             stroke={strokeColor}
             strokeWidth={sw}
             strokeDasharray={strokeDasharray}
+            className={animClass}
+            filter={handFilter}
           />
         );
       }
@@ -304,6 +317,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               stroke={strokeColor}
               strokeWidth={sw}
               strokeDasharray={strokeDasharray}
+              className={animClass}
+              filter={handFilter}
             />
             {/* If selected, render vertex handles so user can clearly see the corners */}
             {isSelected &&
@@ -335,6 +350,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               stroke={strokeColor}
               strokeWidth={sw}
               strokeDasharray={strokeDasharray}
+              className={animClass}
+              filter={handFilter}
             />
             {isSelected &&
               ent.points.map((p, idx) => (
@@ -360,10 +377,13 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             y={ent.y}
             width={ent.w}
             height={ent.h}
-            fill="none"
+            fill={baseStyle.fillColor && baseStyle.fillColor !== '#ffffff' && baseStyle.fillColor !== 'none' ? baseStyle.fillColor : 'none'}
+            fillOpacity={baseStyle.opacity ?? 0.75}
             stroke={strokeColor}
             strokeWidth={sw}
             strokeDasharray={strokeDasharray}
+            className={animClass}
+            filter={handFilter}
           />
         );
 
@@ -693,6 +713,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
       case 'fill': {
         const pts = ent.points.map((p) => `${p.x},${p.y}`).join(' ');
         const patternId = `pat-${ent.id}`;
+        const hasBgFill =
+          baseStyle.fillColor &&
+          baseStyle.fillColor !== 'none' &&
+          baseStyle.fillColor !== 'transparent' &&
+          baseStyle.fillColor !== '#ffffff';
         return (
           <g key={ent.id}>
             <defs>
@@ -700,11 +725,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                 id={patternId}
                 width={ent.hatchSpacing || 4}
                 height={ent.hatchSpacing || 4}
-                patternTransform={`rotate(${ent.hatchAngle || 45} 0 0)`}
+                patternTransform={`rotate(${ent.hatchAngle ?? 45} 0 0)`}
                 patternUnits="userSpaceOnUse"
               >
-                {baseStyle.fillColor && (
-                  <rect width="100%" height="100%" fill={baseStyle.fillColor} />
+                {hasBgFill && (
+                  <rect width="100%" height="100%" fill={baseStyle.fillColor} fillOpacity={baseStyle.opacity ?? 0.35} />
                 )}
                 <line
                   x1="0"
@@ -712,11 +737,18 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   x2="0"
                   y2={ent.hatchSpacing || 4}
                   stroke={strokeColor}
-                  strokeWidth={sw * 0.7}
+                  strokeWidth={Math.max(0.2, sw * 0.75)}
                 />
               </pattern>
             </defs>
-            <polygon points={pts} fill={`url(#${patternId})`} stroke={strokeColor} strokeWidth={sw} />
+            <polygon
+              points={pts}
+              fill={`url(#${patternId})`}
+              stroke={strokeColor}
+              strokeWidth={sw}
+              className={animClass}
+              filter={handFilter}
+            />
           </g>
         );
       }
@@ -826,6 +858,26 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         >
           {/* Technical Drawing Markers & Patterns */}
           <defs>
+            {/* Hand-drawn organic sketch simulation filter */}
+            <filter id="hand-drawn-sketch" x="-10%" y="-10%" width="120%" height="120%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
+              <feDisplacementMap in="SourceGraphic" in2="noise" scale="0.6" xChannelSelector="R" yChannelSelector="G" />
+            </filter>
+
+            <style>
+              {`
+                @keyframes cadHandDraw {
+                  0% { stroke-dashoffset: 1200; opacity: 0.15; }
+                  15% { opacity: 1; }
+                  100% { stroke-dashoffset: 0; opacity: 1; }
+                }
+                .animate-cad-draw {
+                  stroke-dasharray: 1200;
+                  animation: cadHandDraw 0.85s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+                }
+              `}
+            </style>
+
             {/* Standard ISO 129 15-degree dimension arrows */}
             <marker
               id="arrow-end"

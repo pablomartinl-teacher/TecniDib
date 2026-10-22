@@ -586,3 +586,42 @@ test('CAD purgeEntities cleans degenerate zero-length lines and empty texts', ()
   assert.equal(result.removedCount, 2);
   assert.ok(result.details.includes('eliminaron 2 elemento'));
 });
+
+test('createDiedricoTemplate respects view selection and axonometric systems', () => {
+  const sheet = { w: 297, h: 210, name: 'A4 Horizontal', orientation: 'landscape' as const };
+  const styleVis: EntityStyle = { width: 0.5, color: '#000', dash: 'none', marker: 'none' };
+  const styleAux: EntityStyle = { width: 0.25, color: '#94a3b8', dash: 'none', marker: 'none' };
+
+  // 1. Isometric with Alzado and Planta only
+  const isoTemplate = createDiedricoTemplate(sheet, styleVis, styleAux, {
+    views: { alzado: true, planta: true, perfilIzq: false, perfilDer: false, groundLine: true },
+    axonometricSystem: 'isometric',
+    includePrism: true,
+  });
+  assert.ok(isoTemplate.length > 0);
+  const titlesIso = isoTemplate.filter((e) => e.type === 'tag').map((t: any) => t.text);
+  assert.ok(titlesIso.some((t) => t.includes('ALZADO')));
+  assert.ok(titlesIso.some((t) => t.includes('PLANTA')));
+  assert.ok(titlesIso.some((t) => t.includes('ISOMÉTRICA')));
+  assert.ok(!titlesIso.some((t) => t.includes('PERFIL IZQ')));
+
+  // 2. Cavalier (Caballera) template with groundLine
+  const cavTemplate = createDiedricoTemplate(sheet, styleVis, styleAux, {
+    views: { alzado: true, planta: true, perfilIzq: true, perfilDer: false, groundLine: true },
+    axonometricSystem: 'cavalier',
+    includePrism: true,
+  });
+  const titlesCav = cavTemplate.filter((e) => e.type === 'tag').map((t: any) => t.text);
+  assert.ok(titlesCav.some((t) => t.includes('CABALLERA')));
+
+  // 3. Military (Militar) template
+  const milTemplate = createDiedricoTemplate(sheet, styleVis, styleAux, {
+    views: { alzado: true, planta: true, perfilIzq: false, perfilDer: true, groundLine: false },
+    axonometricSystem: 'military',
+    includePrism: true,
+  });
+  const titlesMil = milTemplate.filter((e) => e.type === 'tag').map((t: any) => t.text);
+  assert.ok(titlesMil.some((t) => t.includes('MILITAR')));
+  assert.ok(titlesMil.some((t) => t.includes('PERFIL DER')));
+});
+

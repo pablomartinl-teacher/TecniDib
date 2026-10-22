@@ -3,7 +3,7 @@
  * Saves vertical screen space, improves workflow speed and technical hierarchy
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ToolType } from '../cad/types.ts';
 import {
   MousePointer,
@@ -43,6 +43,30 @@ interface ToolCategory {
 
 export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onSelectTool }) => {
   const [openFlyout, setOpenFlyout] = useState<string | null>(null);
+  const flyoutTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleMouseEnter = (catId: string) => {
+    if (flyoutTimerRef.current) {
+      clearTimeout(flyoutTimerRef.current);
+      flyoutTimerRef.current = null;
+    }
+    setOpenFlyout(catId);
+  };
+
+  const handleMouseLeave = () => {
+    if (flyoutTimerRef.current) {
+      clearTimeout(flyoutTimerRef.current);
+    }
+    flyoutTimerRef.current = setTimeout(() => {
+      setOpenFlyout(null);
+    }, 280);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (flyoutTimerRef.current) clearTimeout(flyoutTimerRef.current);
+    };
+  }, []);
 
   const categories: ToolCategory[] = [
     {
@@ -345,8 +369,8 @@ export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onSelectTool }) =>
           <div
             key={cat.id}
             className="relative"
-            onMouseEnter={() => setOpenFlyout(cat.id)}
-            onMouseLeave={() => setOpenFlyout(null)}
+            onMouseEnter={() => handleMouseEnter(cat.id)}
+            onMouseLeave={handleMouseLeave}
           >
             {/* Primary Category Button */}
             <button
@@ -380,43 +404,48 @@ export const ToolBar: React.FC<ToolBarProps> = ({ activeTool, onSelectTool }) =>
               </svg>
             </button>
 
-            {/* Flyout Submenu Drawer */}
+            {/* Flyout Submenu Drawer - Overlapping hover bridge ensures effortless mouse travel */}
             {isFlyoutOpen && (
               <div
-                className="absolute left-12 top-0 ml-1 bg-slate-900/95 backdrop-blur-md border border-slate-700/90 rounded-xl shadow-2xl p-1.5 flex flex-col gap-1 z-50 min-w-[210px] animate-in fade-in slide-in-from-left-2 duration-100"
+                onMouseEnter={() => handleMouseEnter(cat.id)}
+                onMouseLeave={handleMouseLeave}
+                className="absolute left-full top-0 -ml-1 pl-2.5 z-50 min-w-[220px]"
                 style={{ top: '-4px' }}
               >
-                <div className="px-2.5 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                  {cat.title}
-                </div>
-                {cat.tools.map((tool) => {
-                  const isToolActive = activeTool === tool.id;
-                  return (
-                    <button
-                      key={tool.id}
-                      onClick={() => {
-                        onSelectTool(tool.id);
-                        setOpenFlyout(null);
-                      }}
-                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
-                        isToolActive
-                          ? 'bg-sky-600/30 text-sky-300 border border-sky-500/50'
-                          : 'hover:bg-slate-800 text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className={isToolActive ? 'text-sky-400' : 'text-slate-400'}>{tool.icon}</span>
-                        <div className="flex flex-col">
-                          <span className="font-medium leading-tight">{tool.label}</span>
-                          <span className="text-[10px] text-slate-400 truncate max-w-[130px]">{tool.description}</span>
+                <div className="bg-slate-900/98 backdrop-blur-md border border-slate-700/90 rounded-xl shadow-2xl p-1.5 flex flex-col gap-1 animate-in fade-in slide-in-from-left-2 duration-100">
+                  <div className="px-2.5 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                    {cat.title}
+                  </div>
+                  {cat.tools.map((tool) => {
+                    const isToolActive = activeTool === tool.id;
+                    return (
+                      <button
+                        key={tool.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectTool(tool.id);
+                          setOpenFlyout(null);
+                        }}
+                        className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors text-left cursor-pointer ${
+                          isToolActive
+                            ? 'bg-sky-600/35 text-sky-300 border border-sky-500/50'
+                            : 'hover:bg-slate-800 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className={isToolActive ? 'text-sky-400' : 'text-slate-400'}>{tool.icon}</span>
+                          <div className="flex flex-col">
+                            <span className="font-medium leading-tight">{tool.label}</span>
+                            <span className="text-[10px] text-slate-400 truncate max-w-[130px]">{tool.description}</span>
+                          </div>
                         </div>
-                      </div>
-                      <kbd className="px-1.5 py-0.5 bg-slate-800 rounded font-mono text-[10px] text-amber-300 shrink-0 ml-2">
-                        {tool.key}
-                      </kbd>
-                    </button>
-                  );
-                })}
+                        <kbd className="px-1.5 py-0.5 bg-slate-800 rounded font-mono text-[10px] text-amber-300 shrink-0 ml-2">
+                          {tool.key}
+                        </kbd>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

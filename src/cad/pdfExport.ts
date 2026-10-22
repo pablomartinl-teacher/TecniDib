@@ -1,13 +1,13 @@
 /**
  * VektorCAD - High-precision Multi-Page PDF & Vector Export Engine
  * Renders each page's specific CAD entities cleanly into individual PDF pages
+ * with 1:1 pixel-perfect fidelity (exact stroke widths, texts, markers, and patterns)
  */
 
 import { jsPDF } from 'jspdf';
-import type { CadEntity, PageDocument, SheetSize, EllipseEntity } from './types.ts';
+import type { CadEntity, PageDocument, SheetSize, EllipseEntity, TextEntity } from './types.ts';
 import {
   calculateIsoDimension,
-  getPolygonVertices,
   getEntityPolygonVertices,
   getSvgArcPath,
   smoothPath,
@@ -16,7 +16,7 @@ import {
 export interface ExportPdfOptions {
   fileName?: string;
   allPages?: boolean;
-  scale?: number; // Rasterization scale factor, default 4 (300 DPI high resolution)
+  scale?: number; // Rasterization scale factor: default 300 DPI (approx 11.811 px/mm)
   backgroundColor?: string;
 }
 
@@ -41,12 +41,16 @@ function escapeXml(unsafe: string): string {
 }
 
 /**
- * Renders an array of CAD entities into clean SVG XML elements
+ * Renders an array of CAD entities into clean SVG XML elements matching CadCanvas 1:1
  */
-export function renderEntitiesToSvg(entities: CadEntity[]): string {
+export function renderEntitiesToSvg(entities: CadEntity[], hiddenLayers?: Set<string>): string {
   let out = '';
 
   for (const ent of entities) {
+    if (hiddenLayers && ent.layer && hiddenLayers.has(ent.layer)) {
+      continue;
+    }
+
     const baseStyle = ent.style || {
       width: 0.5,
       color: '#000000',
@@ -63,19 +67,23 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
 
     let markerAttr = '';
     if (baseStyle.marker === 'arrow') {
-      markerAttr = 'marker-end="url(#arrow-end)"';
+      markerAttr = 'marker-start="url(#arrow-start)" marker-end="url(#arrow-end)"';
     } else if (baseStyle.marker === 'tick') {
       markerAttr = 'marker-start="url(#tick)" marker-end="url(#tick)"';
     }
 
-    const fillAttr =
-      baseStyle.fillColor && baseStyle.fillColor !== '#ffffff' && baseStyle.fillColor !== 'none'
-        ? `fill="${baseStyle.fillColor}"`
-        : 'fill="none"';
+    const hasFill =
+      baseStyle.fillColor &&
+      baseStyle.fillColor !== '#ffffff' &&
+      baseStyle.fillColor !== 'none' &&
+      baseStyle.fillColor !== 'transparent';
+    const fillAttr = hasFill ? `fill="${baseStyle.fillColor}"` : 'fill="none"';
+    const fillOpacity = baseStyle.opacity ?? (hasFill ? 0.75 : 0);
+    const fillOpacityAttr = hasFill ? `fill-opacity="${fillOpacity}"` : '';
 
     switch (ent.type) {
       case 'line':
-        out += `<line x1="${ent.x1}" y1="${ent.y1}" x2="${ent.x2}" y2="${ent.y2}" stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr} ${markerAttr} stroke-linecap="round"/>`;
+        out += `<line x1="${ent.x1}" y1="${ent.y1}" x2="${ent.x2}" y2="${ent.y2}" stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr} ${markerAttr} stroke-linecap="round"/>\n`;
         break;
 
       case 'measure': {
@@ -101,7 +109,7 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
       case 'circle':
         out += `
           <g>
-            <circle cx="${ent.cx}" cy="${ent.cy}" r="${ent.r}" ${fillAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>
+            <circle cx="${ent.cx}" cy="${ent.cy}" r="${ent.r}" ${fillAttr} ${fillOpacityAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>
             <line x1="${ent.cx - 3}" y1="${ent.cy}" x2="${ent.cx + 3}" y2="${ent.cy}" stroke="${strokeColor}" stroke-width="0.25"/>
             <line x1="${ent.cx}" y1="${ent.cy - 3}" x2="${ent.cx}" y2="${ent.cy + 3}" stroke="${strokeColor}" stroke-width="0.25"/>
           </g>
@@ -110,25 +118,25 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
 
       case 'arc': {
         const pathData = getSvgArcPath(ent.cx, ent.cy, ent.r, ent.startAngle, ent.sweepAngle);
-        out += `<path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>`;
+        out += `<path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>\n`;
         break;
       }
 
       case 'polygon': {
         const vertices = getEntityPolygonVertices(ent);
         const ptsStr = vertices.map((v) => `${v.x},${v.y}`).join(' ');
-        out += `<polygon points="${ptsStr}" ${fillAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>`;
+        out += `<polygon points="${ptsStr}" ${fillAttr} ${fillOpacityAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>\n`;
         break;
       }
 
       case 'curve': {
         const pathData = smoothPath(ent.points);
-        out += `<path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>`;
+        out += `<path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>\n`;
         break;
       }
 
       case 'rect':
-        out += `<rect x="${ent.x}" y="${ent.y}" width="${ent.w}" height="${ent.h}" ${fillAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>`;
+        out += `<rect x="${ent.x}" y="${ent.y}" width="${ent.w}" height="${ent.h}" ${fillAttr} ${fillOpacityAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>\n`;
         break;
 
       case 'point':
@@ -170,34 +178,42 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
       }
 
       case 'tag':
-        out += `<text x="${ent.x}" y="${ent.y}" fill="${strokeColor}" font-size="${ent.fontSize || 4}" font-family="sans-serif" font-weight="bold" transform="rotate(${ent.angle || 0}, ${ent.x}, ${ent.y})">${escapeXml(ent.text)}</text>`;
+        out += `<text x="${ent.x}" y="${ent.y}" fill="${strokeColor}" font-size="${ent.fontSize || 4}" font-family="sans-serif" font-weight="bold" transform="rotate(${ent.angle || 0}, ${ent.x}, ${ent.y})">${escapeXml(ent.text)}</text>\n`;
         break;
 
       case 'text': {
-        const fontSize = ent.fontSize || 5;
-        const rawText = (ent.textHtml || '')
-          .replace(/<br\s*[\/]?>/gi, '\n')
-          .replace(/<\/p>/gi, '\n')
-          .replace(/<[^>]+>/g, '')
-          .trim();
-        const lines = rawText.split('\n');
-        out += `<text x="${ent.x}" y="${ent.y + fontSize}" fill="${strokeColor}" font-size="${fontSize}" font-family="sans-serif">`;
-        lines.forEach((line, idx) => {
-          out += `<tspan x="${ent.x}" dy="${idx === 0 ? 0 : fontSize * 1.3}">${escapeXml(line)}</tspan>`;
-        });
-        out += `</text>`;
+        const textEnt = ent as TextEntity;
+        const fontSize = textEnt.fontSize || 5;
+        const boxW = typeof textEnt.w === 'number' && textEnt.w > 0 ? textEnt.w : 60;
+        const boxH = typeof textEnt.h === 'number' && textEnt.h > 0 ? textEnt.h : 25;
+        const htmlContent = textEnt.textHtml || escapeXml(textEnt.text || '');
+
+        out += `
+          <g>
+            <foreignObject x="${textEnt.x}" y="${textEnt.y}" width="${boxW}" height="${boxH}" style="overflow: visible;">
+              <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: sans-serif; font-size: ${fontSize}px; color: ${strokeColor}; width: 100%; min-height: 100%; text-align: ${textEnt.align || 'left'}; word-wrap: break-word; white-space: pre-wrap; line-height: 1.25; margin: 0; padding: 1px 2px; box-sizing: border-box;">
+                ${htmlContent}
+              </div>
+            </foreignObject>
+          </g>
+        `;
         break;
       }
 
       case 'fill': {
         const pts = ent.points.map((p) => `${p.x},${p.y}`).join(' ');
-        const patternId = `pat-${ent.id}`;
+        const patternId = `pat-pdf-${ent.id}`;
+        const hasPatternBg =
+          baseStyle.fillColor &&
+          baseStyle.fillColor !== 'none' &&
+          baseStyle.fillColor !== 'transparent' &&
+          baseStyle.fillColor !== '#ffffff';
         out += `
           <g>
             <defs>
-              <pattern id="${patternId}" width="${ent.hatchSpacing || 4}" height="${ent.hatchSpacing || 4}" patternTransform="rotate(${ent.hatchAngle || 45} 0 0)" patternUnits="userSpaceOnUse">
-                ${baseStyle.fillColor ? `<rect width="100%" height="100%" fill="${baseStyle.fillColor}" />` : ''}
-                <line x1="0" y1="0" x2="0" y2="${ent.hatchSpacing || 4}" stroke="${strokeColor}" stroke-width="${sw * 0.7}"/>
+              <pattern id="${patternId}" width="${ent.hatchSpacing || 4}" height="${ent.hatchSpacing || 4}" patternTransform="rotate(${ent.hatchAngle ?? 45} 0 0)" patternUnits="userSpaceOnUse">
+                ${hasPatternBg ? `<rect width="100%" height="100%" fill="${baseStyle.fillColor}" fill-opacity="${baseStyle.opacity ?? 0.35}"/>` : ''}
+                <line x1="0" y1="0" x2="0" y2="${ent.hatchSpacing || 4}" stroke="${strokeColor}" stroke-width="${Math.max(0.2, sw * 0.75)}"/>
               </pattern>
             </defs>
             <polygon points="${pts}" fill="url(#${patternId})" stroke="${strokeColor}" stroke-width="${sw}"/>
@@ -207,14 +223,16 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
       }
 
       case 'image':
-        out += `<image x="${ent.x}" y="${ent.y}" width="${ent.width}" height="${ent.height}" href="${ent.href}"/>`;
+        if (ent.href && typeof ent.href === 'string' && ent.href.trim() !== '' && ent.href !== 'null') {
+          out += `<image x="${ent.x}" y="${ent.y}" width="${ent.width}" height="${ent.height}" href="${ent.href}"/>\n`;
+        }
         break;
 
       case 'ellipse': {
         const el = ent as EllipseEntity;
         out += `
           <g>
-            <ellipse cx="${el.cx}" cy="${el.cy}" rx="${el.rx}" ry="${el.ry}" transform="rotate(${el.rotation || 0} ${el.cx} ${el.cy})" ${fillAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>
+            <ellipse cx="${el.cx}" cy="${el.cy}" rx="${el.rx}" ry="${el.ry}" transform="rotate(${el.rotation || 0} ${el.cx} ${el.cy})" ${fillAttr} ${fillOpacityAttr} stroke="${strokeColor}" stroke-width="${sw}" ${dashAttr}/>
             <line x1="${el.cx - 2.5}" y1="${el.cy}" x2="${el.cx + 2.5}" y2="${el.cy}" stroke="${strokeColor}" stroke-width="0.25"/>
             <line x1="${el.cx}" y1="${el.cy - 2.5}" x2="${el.cx}" y2="${el.cy + 2.5}" stroke="${strokeColor}" stroke-width="0.25"/>
           </g>
@@ -235,8 +253,9 @@ export function renderEntitiesToSvg(entities: CadEntity[]): string {
  */
 export function renderPageToSvgString(
   page: PageDocument,
-  scale = 4,
-  backgroundColor = '#ffffff'
+  scale = 300 / 25.4,
+  backgroundColor = '#ffffff',
+  hiddenLayers?: Set<string>
 ): string {
   const sheet = page.sheetSize || {
     name: 'A4',
@@ -245,20 +264,21 @@ export function renderPageToSvgString(
     orientation: 'landscape',
   };
 
-  const widthPx = sheet.w * scale;
-  const heightPx = sheet.h * scale;
+  const widthPx = Math.round(sheet.w * scale);
+  const heightPx = Math.round(sheet.h * scale);
 
   return `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheet.w} ${sheet.h}" width="${widthPx}px" height="${heightPx}px">
   <defs>
-    <marker id="arrow-start" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <!-- Standard ISO 129 15-degree dimension arrows: arrow-end points at target line, arrow-start points at starting extension -->
+    <marker id="arrow-end" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
       <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#000000" />
     </marker>
-    <marker id="arrow-end" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#000000" />
+    <marker id="arrow-start" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 10 1.5 L 0 5 L 10 8.5 z" fill="#000000" />
     </marker>
     <marker id="tick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <line x1="2" y1="8" x2="8" y2="2" stroke="#000000" stroke-width="1.5" />
+      <line x1="8" y1="2" x2="2" y2="8" stroke="#000000" stroke-width="1.5" stroke-linecap="round" />
     </marker>
   </defs>
 
@@ -268,9 +288,9 @@ export function renderPageToSvgString(
   <!-- Background PDF / imported exercise image if present -->
   ${page.bgImage ? `<image x="0" y="0" width="100%" height="100%" href="${page.bgImage}" preserveAspectRatio="xMidYMid meet" opacity="0.85"/>` : ''}
 
-  <!-- Page Solution Entities -->
+  <!-- Page Solution Entities Layer -->
   <g id="layer-solucion">
-    ${renderEntitiesToSvg(page.data || [])}
+    ${renderEntitiesToSvg(page.data || [], hiddenLayers)}
   </g>
 </svg>
   `.trim();
@@ -278,6 +298,7 @@ export function renderPageToSvgString(
 
 /**
  * Exports current page or all pages to a normalized multi-page PDF document
+ * with 300 DPI lossless high-fidelity output.
  */
 export async function exportProjectToPDF(
   pages: PageDocument[],
@@ -285,10 +306,13 @@ export async function exportProjectToPDF(
   svgRef: SVGSVGElement | null,
   options: ExportPdfOptions = {}
 ): Promise<void> {
+  // Standard 300 DPI print scale: 300 dots per inch / 25.4 mm per inch = ~11.811 pixels per mm
+  const PRINT_300_DPI_SCALE = 300 / 25.4;
+
   const {
     fileName = 'Lamina_Tecnica_VektorCAD',
     allPages = false,
-    scale = 4,
+    scale = PRINT_300_DPI_SCALE,
     backgroundColor = '#ffffff',
   } = options;
 
@@ -331,20 +355,25 @@ export async function exportProjectToPDF(
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(sheet.w * scale);
           canvas.height = Math.round(sheet.h * scale);
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext('2d', { alpha: false });
           if (!ctx) {
             URL.revokeObjectURL(url);
             resolve();
             return;
           }
 
+          // Enable high-quality smoothing for anti-aliased submillimeter lines
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
           ctx.fillStyle = backgroundColor;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           URL.revokeObjectURL(url);
 
-          const imgData = canvas.toDataURL('image/jpeg', 0.98);
-          doc.addImage(imgData, 'JPEG', 0, 0, sheet.w, sheet.h, undefined, 'FAST');
+          // Use lossless PNG (NOT lossy JPEG) to eliminate compression artifacts and line fuzziness
+          const imgData = canvas.toDataURL('image/png');
+          doc.addImage(imgData, 'PNG', 0, 0, sheet.w, sheet.h, undefined, 'SLOW');
           resolve();
         } catch (err) {
           URL.revokeObjectURL(url);

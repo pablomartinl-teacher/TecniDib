@@ -993,6 +993,11 @@ export function calculateIsocircle(
   return { rx, ry, rotation };
 }
 
+let _geomGlobalId = 0;
+export function generateUniqueEntityId(): number {
+  return Date.now() * 1000 + (_geomGlobalId++ % 1000);
+}
+
 /**
  * Creates the 12 edges of an Isometric Box / Bounding Prism
  */
@@ -1026,10 +1031,136 @@ export function createIsometricBox(
   const p6 = { x: p2.x + vZ.x, y: p2.y + vZ.y };
   const p7 = { x: p3.x + vZ.x, y: p3.y + vZ.y };
 
-  const t = Date.now();
-  let idCount = 0;
   const mkLine = (a: Point2D, b: Point2D, isHidden: boolean): LineEntity => ({
-    id: t + idCount++,
+    id: generateUniqueEntityId(),
+    type: 'line',
+    x1: Math.round(a.x * 100) / 100,
+    y1: Math.round(a.y * 100) / 100,
+    x2: Math.round(b.x * 100) / 100,
+    y2: Math.round(b.y * 100) / 100,
+    style: isHidden ? hiddenStyle : visibleStyle,
+    layer: layerName,
+  });
+
+  return [
+    mkLine(p0, p1, false),
+    mkLine(p0, p3, false),
+    mkLine(p0, p4, false),
+    mkLine(p1, p5, false),
+    mkLine(p3, p7, false),
+    mkLine(p4, p5, false),
+    mkLine(p5, p6, false),
+    mkLine(p6, p7, false),
+    mkLine(p7, p4, false),
+    mkLine(p1, p2, true),
+    mkLine(p3, p2, true),
+    mkLine(p2, p6, true),
+  ];
+}
+
+export type AxonometricSystem = 'isometric' | 'cavalier' | 'military';
+
+export interface DiedricoConfig {
+  views?: {
+    alzado?: boolean;
+    planta?: boolean;
+    perfilIzq?: boolean;
+    perfilDer?: boolean;
+    groundLine?: boolean;
+  };
+  axonometricSystem?: AxonometricSystem;
+  includePrism?: boolean;
+}
+
+/**
+ * Creates 12 edges of a Cavalier Projection Box (Front X-Z true shape, Y at 135º with 0.5 reduction)
+ */
+export function createCavalierBox(
+  origin: Point2D,
+  dimX: number,
+  dimY: number,
+  dimZ: number,
+  visibleStyle: EntityStyle,
+  hiddenStyle: EntityStyle,
+  layerName: string = 'SOLUCION'
+): LineEntity[] {
+  const red = 0.5;
+  const cos45 = Math.cos(Math.PI / 4);
+  const sin45 = Math.sin(Math.PI / 4);
+  const vX = { x: dimX, y: 0 };
+  const vY = { x: -dimY * red * cos45, y: -dimY * red * sin45 };
+  const vZ = { x: 0, y: -dimZ };
+
+  const p0 = { x: origin.x, y: origin.y };
+  const p1 = { x: p0.x + vX.x, y: p0.y + vX.y };
+  const p2 = { x: p1.x + vY.x, y: p1.y + vY.y };
+  const p3 = { x: p0.x + vY.x, y: p0.y + vY.y };
+
+  const p4 = { x: p0.x + vZ.x, y: p0.y + vZ.y };
+  const p5 = { x: p1.x + vZ.x, y: p1.y + vZ.y };
+  const p6 = { x: p2.x + vZ.x, y: p2.y + vZ.y };
+  const p7 = { x: p3.x + vZ.x, y: p3.y + vZ.y };
+
+  const mkLine = (a: Point2D, b: Point2D, isHidden: boolean): LineEntity => ({
+    id: generateUniqueEntityId(),
+    type: 'line',
+    x1: Math.round(a.x * 100) / 100,
+    y1: Math.round(a.y * 100) / 100,
+    x2: Math.round(b.x * 100) / 100,
+    y2: Math.round(b.y * 100) / 100,
+    style: isHidden ? hiddenStyle : visibleStyle,
+    layer: layerName,
+  });
+
+  return [
+    mkLine(p0, p1, false),
+    mkLine(p0, p4, false),
+    mkLine(p1, p5, false),
+    mkLine(p4, p5, false),
+    mkLine(p4, p7, false),
+    mkLine(p5, p6, false),
+    mkLine(p6, p7, false),
+    mkLine(p1, p2, false),
+    mkLine(p2, p6, false),
+    mkLine(p0, p3, true),
+    mkLine(p3, p2, true),
+    mkLine(p3, p7, true),
+  ];
+}
+
+/**
+ * Creates 12 edges of a Military (Planometric) Box (Horizontal ground plane undistorted at 30º/60º, Z vertical 1:1)
+ */
+export function createMilitaryBox(
+  origin: Point2D,
+  dimX: number,
+  dimY: number,
+  dimZ: number,
+  visibleStyle: EntityStyle,
+  hiddenStyle: EntityStyle,
+  layerName: string = 'SOLUCION'
+): LineEntity[] {
+  const cos30 = Math.cos(Math.PI / 6);
+  const sin30 = Math.sin(Math.PI / 6);
+  const cos60 = Math.cos(Math.PI / 3);
+  const sin60 = Math.sin(Math.PI / 3);
+
+  const vX = { x: dimX * cos30, y: -dimX * sin30 };
+  const vY = { x: -dimY * cos60, y: -dimY * sin60 };
+  const vZ = { x: 0, y: -dimZ };
+
+  const p0 = { x: origin.x, y: origin.y };
+  const p1 = { x: p0.x + vX.x, y: p0.y + vX.y };
+  const p2 = { x: p1.x + vY.x, y: p1.y + vY.y };
+  const p3 = { x: p0.x + vY.x, y: p0.y + vY.y };
+
+  const p4 = { x: p0.x + vZ.x, y: p0.y + vZ.y };
+  const p5 = { x: p1.x + vZ.x, y: p1.y + vZ.y };
+  const p6 = { x: p2.x + vZ.x, y: p2.y + vZ.y };
+  const p7 = { x: p3.x + vZ.x, y: p3.y + vZ.y };
+
+  const mkLine = (a: Point2D, b: Point2D, isHidden: boolean): LineEntity => ({
+    id: generateUniqueEntityId(),
     type: 'line',
     x1: Math.round(a.x * 100) / 100,
     y1: Math.round(a.y * 100) / 100,
@@ -1057,22 +1188,32 @@ export function createIsometricBox(
 
 /**
  * Creates standardized European Dihedral Projection Sheet Template (UNE-EN ISO 5456-2)
+ * with customizable views (Alzado, Planta, Perfiles) and 3D axonometric system (Isométrica, Caballera, Militar)
  */
 export function createDiedricoTemplate(
   sheet: SheetSize,
   mainStyle: EntityStyle,
-  auxStyle: EntityStyle
+  auxStyle: EntityStyle,
+  config?: DiedricoConfig
 ): CadEntity[] {
-  const t = Date.now();
-  let id = 0;
   const entities: CadEntity[] = [];
 
   const midX = sheet.w / 2;
   const midY = sheet.h / 2;
 
-  // 1. Central separator line
+  const views = config?.views || {
+    alzado: true,
+    planta: true,
+    perfilIzq: true,
+    perfilDer: false,
+    groundLine: true,
+  };
+  const axonSystem: AxonometricSystem = config?.axonometricSystem || 'isometric';
+  const includePrism = config?.includePrism ?? false;
+
+  // 1. Central separator line between 2D views and 3D projection
   entities.push({
-    id: t + id++,
+    id: generateUniqueEntityId(),
     type: 'line',
     x1: midX,
     y1: 15,
@@ -1082,57 +1223,12 @@ export function createDiedricoTemplate(
     layer: 'EJES',
   });
 
-  // 2. Dihedral Projection Frame (Left side):
   const ltY = midY;
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: 25,
-    y1: ltY,
-    x2: midX - 15,
-    y2: ltY,
-    style: { ...mainStyle, width: 0.5, color: '#0f172a' },
-    layer: 'EJES',
-  });
-
-  // Ground line marks
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: 26,
-    y1: ltY,
-    x2: 26,
-    y2: ltY + 3,
-    style: { ...mainStyle, width: 0.35, color: '#0f172a' },
-    layer: 'EJES',
-  });
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: midX - 16,
-    y1: ltY,
-    x2: midX - 16,
-    y2: ltY + 3,
-    style: { ...mainStyle, width: 0.35, color: '#0f172a' },
-    layer: 'EJES',
-  });
-
-  // Vertical axis of projection
   const vertAxisX = (25 + midX - 15) / 2;
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: vertAxisX,
-    y1: 25,
-    x2: vertAxisX,
-    y2: sheet.h - 25,
-    style: { ...auxStyle, dash: '10,2,2,2', color: '#94a3b8', width: 0.25 },
-    layer: 'EJES',
-  });
 
   // Labels for Dihedral Views:
   const mkTag = (text: string, x: number, y: number, fontSize: number = 3.2): TagEntity => ({
-    id: t + id++,
+    id: generateUniqueEntityId(),
     type: 'tag',
     text,
     x,
@@ -1143,60 +1239,244 @@ export function createDiedricoTemplate(
     layer: 'TEXTO',
   });
 
-  entities.push(mkTag('LÍNEA DE TIERRA (LT)', 28, ltY - 2, 2.5));
-  entities.push(mkTag('ALZADO (VISTA FRONTAL)', 30, 28, 3.2));
-  entities.push(mkTag('PLANTA (VISTA SUPERIOR)', 30, ltY + 10, 3.2));
-  entities.push(mkTag('PERFIL IZQUIERDO', vertAxisX + 10, 28, 3.2));
+  // 2. Dihedral Projection Frame (Left side):
+  if (views.groundLine !== false) {
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: 25,
+      y1: ltY,
+      x2: midX - 15,
+      y2: ltY,
+      style: { ...mainStyle, width: 0.5, color: '#0f172a' },
+      layer: 'EJES',
+    });
 
-  // 3. Right side: Isometric Axes Tripod (X-Y-Z at 120º)
-  const isoCenterX = midX + (sheet.w - midX) / 2;
-  const isoCenterY = midY + 15;
+    // Ground line marks (rayitas indicadoras de LT)
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: 26,
+      y1: ltY,
+      x2: 26,
+      y2: ltY + 3,
+      style: { ...mainStyle, width: 0.35, color: '#0f172a' },
+      layer: 'EJES',
+    });
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: midX - 16,
+      y1: ltY,
+      x2: midX - 16,
+      y2: ltY + 3,
+      style: { ...mainStyle, width: 0.35, color: '#0f172a' },
+      layer: 'EJES',
+    });
+
+    // Vertical axis of projection
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: vertAxisX,
+      y1: 25,
+      x2: vertAxisX,
+      y2: sheet.h - 25,
+      style: { ...auxStyle, dash: '10,2,2,2', color: '#94a3b8', width: 0.25 },
+      layer: 'EJES',
+    });
+
+    entities.push(mkTag('LÍNEA DE TIERRA (LT)', 28, ltY - 2, 2.5));
+  }
+
+  if (views.alzado !== false) {
+    entities.push(mkTag('ALZADO (VISTA FRONTAL)', 30, 28, 3.2));
+  }
+  if (views.planta !== false) {
+    entities.push(mkTag('PLANTA (VISTA SUPERIOR)', 30, ltY + 10, 3.2));
+  }
+  if (views.perfilIzq !== false) {
+    entities.push(mkTag('PERFIL IZQUIERDO', vertAxisX + 10, 28, 3.2));
+  }
+  if (views.perfilDer) {
+    entities.push(mkTag('PERFIL DERECHO', 30, 28, 3.2));
+  }
+
+  // 3. Right side: Axonometric System Tripod & 3D Figure
+  const axonCenterX = midX + (sheet.w - midX) / 2;
+  const axonCenterY = midY + 15;
   const axisLen = Math.min(sheet.w, sheet.h) * 0.28;
 
-  const cos30 = Math.cos(Math.PI / 6);
-  const sin30 = Math.sin(Math.PI / 6);
+  if (axonSystem === 'cavalier') {
+    // Caballera: X horizontal (0º), Z vertical (90º), Y receding at 135º
+    const cos45 = Math.cos(Math.PI / 4);
+    const sin45 = Math.sin(Math.PI / 4);
 
-  // Z Axis (vertical upwards)
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: isoCenterX,
-    y1: isoCenterY,
-    x2: isoCenterX,
-    y2: isoCenterY - axisLen,
-    style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
-    layer: 'EJES',
-  });
+    // Z Axis
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX,
+      y2: axonCenterY - axisLen,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+    // X Axis
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX + axisLen,
+      y2: axonCenterY,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+    // Y Axis (135º receding with 0.5 reduction mark)
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX - axisLen * 0.5 * cos45,
+      y2: axonCenterY - axisLen * 0.5 * sin45,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
 
-  // X Axis (at 30º)
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: isoCenterX,
-    y1: isoCenterY,
-    x2: isoCenterX + axisLen * cos30,
-    y2: isoCenterY + axisLen * sin30,
-    style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
-    layer: 'EJES',
-  });
+    entities.push(mkTag('Z (+90º)', axonCenterX + 3, axonCenterY - axisLen + 4, 3.0));
+    entities.push(mkTag('X (0º - Escala 1:1)', axonCenterX + axisLen + 3, axonCenterY - 1, 3.0));
+    entities.push(mkTag('Y (135º - Reducción 1/2)', axonCenterX - axisLen * 0.5 * cos45 - 24, axonCenterY - axisLen * 0.5 * sin45 - 2, 2.8));
+    entities.push(mkTag('PERSPECTIVA CABALLERA (45º / Red. 1/2)', midX + 15, 28, 3.2));
 
-  // Y Axis (at 150º)
-  entities.push({
-    id: t + id++,
-    type: 'line',
-    x1: isoCenterX,
-    y1: isoCenterY,
-    x2: isoCenterX - axisLen * cos30,
-    y2: isoCenterY + axisLen * sin30,
-    style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
-    layer: 'EJES',
-  });
+    if (includePrism) {
+      const prism = createCavalierBox(
+        { x: axonCenterX, y: axonCenterY },
+        axisLen * 0.55,
+        axisLen * 0.55,
+        axisLen * 0.55,
+        { ...mainStyle, width: 0.5 },
+        { ...auxStyle, width: 0.25, dash: '3,3', color: '#94a3b8' }
+      );
+      entities.push(...prism);
+    }
+  } else if (axonSystem === 'military') {
+    // Axonométrica Militar: Plan plane (X at 30º, Y at 120º - forming 90º true angle), Z vertical (1:1)
+    const cos30 = Math.cos(Math.PI / 6);
+    const sin30 = Math.sin(Math.PI / 6);
+    const cos60 = Math.cos(Math.PI / 3);
+    const sin60 = Math.sin(Math.PI / 3);
 
-  // Axis Labels:
-  entities.push(mkTag('Z (+90º)', isoCenterX + 3, isoCenterY - axisLen + 4, 3.0));
-  entities.push(mkTag('X (+30º)', isoCenterX + axisLen * cos30 + 3, isoCenterY + axisLen * sin30 + 3, 3.0));
-  entities.push(mkTag('Y (150º)', isoCenterX - axisLen * cos30 - 18, isoCenterY + axisLen * sin30 + 3, 3.0));
-  entities.push(mkTag('PERSPECTIVA ISOMÉTRICA (120º)', midX + 15, 28, 3.2));
+    // Z Axis
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX,
+      y2: axonCenterY - axisLen,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+    // X Axis
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX + axisLen * cos30,
+      y2: axonCenterY - axisLen * sin30,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+    // Y Axis (at 120º, perpendicular to X)
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX - axisLen * cos60,
+      y2: axonCenterY - axisLen * sin60,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+
+    entities.push(mkTag('Z (Vertical 1:1)', axonCenterX + 3, axonCenterY - axisLen + 4, 3.0));
+    entities.push(mkTag('X (+30º)', axonCenterX + axisLen * cos30 + 3, axonCenterY - axisLen * sin30, 3.0));
+    entities.push(mkTag('Y (120º)', axonCenterX - axisLen * cos60 - 15, axonCenterY - axisLen * sin60, 3.0));
+    entities.push(mkTag('PERSPECTIVA MILITAR (Planta 90º)', midX + 15, 28, 3.2));
+
+    if (includePrism) {
+      const prism = createMilitaryBox(
+        { x: axonCenterX, y: axonCenterY },
+        axisLen * 0.55,
+        axisLen * 0.55,
+        axisLen * 0.55,
+        { ...mainStyle, width: 0.5 },
+        { ...auxStyle, width: 0.25, dash: '3,3', color: '#94a3b8' }
+      );
+      entities.push(...prism);
+    }
+  } else {
+    // Isométrica (120º)
+    const cos30 = Math.cos(Math.PI / 6);
+    const sin30 = Math.sin(Math.PI / 6);
+
+    // Z Axis (vertical upwards)
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX,
+      y2: axonCenterY - axisLen,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+
+    // X Axis (at 30º)
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX + axisLen * cos30,
+      y2: axonCenterY + axisLen * sin30,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+
+    // Y Axis (at 150º)
+    entities.push({
+      id: generateUniqueEntityId(),
+      type: 'line',
+      x1: axonCenterX,
+      y1: axonCenterY,
+      x2: axonCenterX - axisLen * cos30,
+      y2: axonCenterY + axisLen * sin30,
+      style: { ...auxStyle, width: 0.35, color: '#0284c7', marker: 'arrow' },
+      layer: 'EJES',
+    });
+
+    entities.push(mkTag('Z (+90º)', axonCenterX + 3, axonCenterY - axisLen + 4, 3.0));
+    entities.push(mkTag('X (+30º)', axonCenterX + axisLen * cos30 + 3, axonCenterY + axisLen * sin30 + 3, 3.0));
+    entities.push(mkTag('Y (150º)', axonCenterX - axisLen * cos30 - 18, axonCenterY + axisLen * sin30 + 3, 3.0));
+    entities.push(mkTag('PERSPECTIVA ISOMÉTRICA (120º)', midX + 15, 28, 3.2));
+
+    if (includePrism) {
+      const prism = createIsometricBox(
+        { x: axonCenterX, y: axonCenterY },
+        axisLen * 0.55,
+        axisLen * 0.55,
+        axisLen * 0.55,
+        { ...mainStyle, width: 0.5 },
+        { ...auxStyle, width: 0.25, dash: '3,3', color: '#94a3b8' }
+      );
+      entities.push(...prism);
+    }
+  }
 
   return entities;
 }

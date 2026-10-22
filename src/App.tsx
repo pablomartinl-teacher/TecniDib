@@ -48,6 +48,8 @@ import {
   isEntityInsideBox,
   isEntityCrossingBox,
   purgeEntities,
+  DiedricoConfig,
+  AxonometricSystem,
 } from './cad/geometry.ts';
 import {
   createDefaultProject,
@@ -76,6 +78,7 @@ import { PlayerBar } from './components/PlayerBar.tsx';
 import { PageManagerModal } from './components/PageManagerModal.tsx';
 import { ContextMenu } from './components/ContextMenu.tsx';
 import { ShortcutsModal } from './components/ShortcutsModal.tsx';
+import { DiedricoModal } from './components/DiedricoModal.tsx';
 
 export default function App() {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -179,6 +182,10 @@ export default function App() {
   const [showInspector, setShowInspector] = useState<boolean>(false);
   const [showPlayer, setShowPlayer] = useState<boolean>(false);
   const [playerStep, setPlayerStep] = useState<number>(0);
+  const [isHandDrawn, setIsHandDrawn] = useState<boolean>(true);
+  const [isCtrlHeld, setIsCtrlHeld] = useState<boolean>(false);
+  const [showBgImage, setShowBgImage] = useState<boolean>(true);
+  const [isDiedricoModalOpen, setIsDiedricoModalOpen] = useState<boolean>(false);
   const [showCompassArcs, setShowCompassArcs] = useState<boolean>(true);
   const [customPrompt, setCustomPrompt] = useState<string>('');
 
@@ -311,7 +318,7 @@ export default function App() {
       const rawY = (clientY - CTM.f) / CTM.d;
 
       // If user holds Ctrl, temporary disable snapping
-      if (e.ctrlKey || !snapEnabled) {
+      if (e.ctrlKey || isCtrlHeld || !snapEnabled) {
         setActiveSnap(null);
         return { x: rawX, y: rawY };
       }
@@ -341,7 +348,7 @@ export default function App() {
 
       return { x: rawX, y: rawY };
     },
-    [entities, snapEnabled, gridSnapEnabled, gridPitch, gridMode]
+    [entities, snapEnabled, isCtrlHeld, gridSnapEnabled, gridPitch, gridMode]
   );
 
   // Keyboard shortcut listener
@@ -432,15 +439,10 @@ export default function App() {
         return;
       }
 
-      // Toggle magnet / snap when pressing Control key
-      if (e.key === 'Control' && !e.repeat) {
-        setSnapEnabled((prev) => {
-          const next = !prev;
-          setSaveStatus(next ? '🧲 Imán: Activado' : '⚡ Imán: Desactivado');
-          setTimeout(() => setSaveStatus(''), 1500);
-          return next;
-        });
-        return;
+      // Temporarily bypass magnet / snap while holding Control key
+      if (e.key === 'Control') {
+        setIsCtrlHeld(true);
+        setActiveSnap(null);
       }
 
       // Save file with Ctrl+S (choose filename)
@@ -463,6 +465,32 @@ export default function App() {
           },
         ]);
         setSaveStatus('〰️ Spline creada');
+        setTimeout(() => setSaveStatus(''), 2000);
+        cancelAction();
+        return;
+      }
+
+      // Complete Hatch / Rayado on Enter
+      if (e.key === 'Enter' && currentTool === 'fill' && curvePoints.length >= 3) {
+        e.preventDefault();
+        pushState([
+          ...entities,
+          {
+            type: 'fill',
+            id: Date.now(),
+            points: [...curvePoints],
+            layer: activeLayerId,
+            style: {
+              ...currentStyle,
+              fillColor:
+                currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== '#ffffff'
+                  ? currentStyle.fillColor
+                  : 'none',
+              opacity: currentStyle.opacity ?? 0.35,
+            },
+          },
+        ]);
+        setSaveStatus('🎨 Rayado a 45º generado');
         setTimeout(() => setSaveStatus(''), 2000);
         cancelAction();
         return;
@@ -653,23 +681,36 @@ export default function App() {
         };
         if (toolMap[char]) {
           cancelAction();
+          if (toolMap[char] === 'diedrico_template') {
+            setIsDiedricoModalOpen(true);
+            return;
+          }
           setCurrentTool(toolMap[char]);
         }
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        setIsCtrlHeld(false);
+      }
       if (e.code === 'Space') {
         setIsPanning(false);
         setPanStart(null);
       }
     };
 
+    const handleBlur = () => {
+      setIsCtrlHeld(false);
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [
     isDrawing,
@@ -1650,19 +1691,9 @@ export default function App() {
     }
 
     // Dihedral Projection + 3D Isometric Sheet Template Generator
+    // Dihedral Projection + 3D Axonometric Sheet Template Generator
     if (currentTool === 'diedrico_template') {
-      const templateEntities = createDiedricoTemplate(
-        currentPage.sheetSize,
-        { ...currentStyle, width: 0.5 },
-        { ...currentStyle, width: 0.25, color: '#64748b' }
-      );
-      pushState([...entities, ...templateEntities]);
-      setGridMode('isometric');
-      setGridSnapEnabled(true);
-      setSaveStatus('📐 Lámina de Vistas Diédricas y Perspectiva Isométrica generada');
-      setTimeout(() => setSaveStatus(''), 3000);
-      cancelAction();
-      setCurrentTool('cursor');
+      setIsDiedricoModalOpen(true);
       return;
     }
 
@@ -1692,19 +1723,99 @@ export default function App() {
       return;
     }
 
-    // Hatch / Filled Region Tool
+    // Hatch / Filled Region Tool (45º Technical Hatching)
     if (currentTool === 'fill') {
-      if (curvePoints.length > 2 && Math.hypot(pos.x - curvePoints[0].x, pos.y - curvePoints[0].y) < 4) {
+      // 1. If clicking on existing shape (rect, polygon), apply 45º hatch directly
+      if (curvePoints.length === 0) {
+        const hit = getHitEntity(pos, entities, 6);
+        if (hit) {
+          if (hit.type === 'rect') {
+            const pts: Point2D[] = [
+              { x: hit.x, y: hit.y },
+              { x: hit.x + hit.w, y: hit.y },
+              { x: hit.x + hit.w, y: hit.y + hit.h },
+              { x: hit.x, y: hit.y + hit.h },
+            ];
+            pushState([
+              ...entities,
+              {
+                type: 'fill',
+                id: Date.now(),
+                points: pts,
+                layer: activeLayerId,
+                hatchAngle: 45,
+                hatchSpacing: 4,
+                style: {
+                  ...currentStyle,
+                  fillColor:
+                    currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== '#ffffff'
+                      ? currentStyle.fillColor
+                      : 'none',
+                  opacity: currentStyle.opacity ?? 0.35,
+                },
+              },
+            ]);
+            setSaveStatus('🎨 Rayado a 45º aplicado al rectángulo');
+            setTimeout(() => setSaveStatus(''), 2000);
+            cancelAction();
+            return;
+          } else if (hit.type === 'polygon') {
+            const verts = getEntityPolygonVertices(hit);
+            if (verts.length >= 3) {
+              pushState([
+                ...entities,
+                {
+                  type: 'fill',
+                  id: Date.now(),
+                  points: verts,
+                  layer: activeLayerId,
+                  hatchAngle: 45,
+                  hatchSpacing: 4,
+                  style: {
+                    ...currentStyle,
+                    fillColor:
+                      currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== '#ffffff'
+                        ? currentStyle.fillColor
+                        : 'none',
+                    opacity: currentStyle.opacity ?? 0.35,
+                  },
+                },
+              ]);
+              setSaveStatus('🎨 Rayado a 45º aplicado al polígono');
+              setTimeout(() => setSaveStatus(''), 2000);
+              cancelAction();
+              return;
+            }
+          }
+        }
+      }
+
+      // 2. Click points to define closed boundary. If clicking near start or previous point, complete!
+      if (
+        curvePoints.length >= 2 &&
+        (Math.hypot(pos.x - curvePoints[0].x, pos.y - curvePoints[0].y) < 5 ||
+          (curvePoints.length >= 3 && Math.hypot(pos.x - curvePoints[curvePoints.length - 1].x, pos.y - curvePoints[curvePoints.length - 1].y) < 3))
+      ) {
         pushState([
           ...entities,
           {
             type: 'fill',
             id: Date.now(),
             points: [...curvePoints],
-            style: { ...currentStyle },
+            layer: activeLayerId,
+            hatchAngle: 45,
+            hatchSpacing: 4,
+            style: {
+              ...currentStyle,
+              fillColor:
+                currentStyle.fillColor && currentStyle.fillColor !== 'none' && currentStyle.fillColor !== '#ffffff'
+                  ? currentStyle.fillColor
+                  : 'none',
+              opacity: currentStyle.opacity ?? 0.35,
+            },
           },
         ]);
-        setSaveStatus('🎨 Región rellenada');
+        setSaveStatus('🎨 Rayado a 45º completado');
         setTimeout(() => setSaveStatus(''), 2000);
         cancelAction();
         return;
@@ -1903,6 +2014,23 @@ export default function App() {
           angle: ang,
           style: { ...currentStyle },
         });
+      } else if (currentTool === 'rect' && p1) {
+        const rx = Math.min(p1.x, finalX);
+        const ry = Math.min(p1.y, finalY);
+        const rw = Math.abs(finalX - p1.x);
+        const rh = Math.abs(finalY - p1.y);
+        if (rw > 0.1 && rh > 0.1) {
+          updated.push({
+            type: 'rect',
+            id: t,
+            x: rx,
+            y: ry,
+            w: rw,
+            h: rh,
+            layer: activeLayerId,
+            style: { ...currentStyle },
+          });
+        }
       }
 
       pushState(updated);
@@ -2255,6 +2383,15 @@ export default function App() {
         <path d="${splineD}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-dasharray="2,2"/>
         ${ptsMarks}
         <circle cx="${pos.x}" cy="${pos.y}" r="1.8" fill="none" stroke="#38bdf8" stroke-width="0.6"/>
+      `;
+    } else if (currentTool === 'rect' && p1) {
+      const rx = Math.min(p1.x, p2x);
+      const ry = Math.min(p1.y, p2y);
+      const rw = Math.abs(p2x - p1.x);
+      const rh = Math.abs(p2y - p1.y);
+      content = `
+        <rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" stroke="${col}" stroke-width="${sw}" fill="rgba(56, 189, 248, 0.08)" opacity="0.75" ${dash}/>
+        <text x="${rx + rw / 2}" y="${ry + rh / 2}" fill="#0284c7" font-size="3.5" font-family="monospace" font-weight="bold" text-anchor="middle">${rw.toFixed(1)} × ${rh.toFixed(1)} mm</text>
       `;
     } else if (currentTool === 'fill' && curvePoints.length > 0) {
       const pts = curvePoints.map((p) => `${p.x},${p.y}`).join(' ');
@@ -2967,6 +3104,23 @@ export default function App() {
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         isFocusMode={isFocusMode}
         onToggleFocusMode={() => setIsFocusMode((p) => !p)}
+        hasBgImage={Boolean(currentPage.bgImage)}
+        showBgImage={showBgImage}
+        onToggleBgImage={() => setShowBgImage((prev) => !prev)}
+        onRemoveBgImage={() => {
+          if (confirm('¿Eliminar definitivamente el PDF/imagen base de esta lámina?')) {
+            setProject((prev) => {
+              const updatedPages = [...prev.pages];
+              updatedPages[currentPageIndex] = {
+                ...updatedPages[currentPageIndex],
+                bgImage: null,
+              };
+              return { ...prev, pages: updatedPages };
+            });
+            setSaveStatus('🗑️ PDF base eliminado');
+            setTimeout(() => setSaveStatus(''), 2000);
+          }
+        }}
       />
       )}
 
@@ -3022,6 +3176,7 @@ export default function App() {
         selectedCount={selectedEntities.length}
         snapEnabled={snapEnabled}
         onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+        isCtrlHeld={isCtrlHeld}
         gridSnapEnabled={gridSnapEnabled}
         onToggleGridSnap={() => setGridSnapEnabled((prev) => !prev)}
         gridPitch={gridPitch}
@@ -3043,10 +3198,17 @@ export default function App() {
 
       {/* 3. Main Workspace: ToolBar + Canvas + Overlays + Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
-        <ToolBar activeTool={currentTool} onSelectTool={(tool) => {
-          cancelAction();
-          setCurrentTool(tool);
-        }} />
+        <ToolBar
+          activeTool={currentTool}
+          onSelectTool={(tool) => {
+            cancelAction();
+            if (tool === 'diedrico_template') {
+              setIsDiedricoModalOpen(true);
+              return;
+            }
+            setCurrentTool(tool);
+          }}
+        />
 
         <div className="flex-1 relative flex overflow-hidden">
           <CadCanvas
@@ -3065,7 +3227,7 @@ export default function App() {
             activeAlignX={activeAlignX}
             activeAlignY={activeAlignY}
             ghostHtml={ghostHtml}
-            bgImage={currentPage.bgImage}
+            bgImage={showBgImage ? currentPage.bgImage : null}
             hiddenLayers={new Set(layers.filter((l) => !l.visible).map((l) => l.id))}
             cursorPos={coords}
             showRulers={true}
@@ -3073,6 +3235,8 @@ export default function App() {
             p1={p1}
             currentTool={currentTool}
             orthoMode={orthoMode}
+            isPlayerActive={showPlayer}
+            isHandDrawn={isHandDrawn}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -3097,6 +3261,8 @@ export default function App() {
             totalSteps={allEntities.length}
             currentStep={playerStep}
             onStepChange={(s) => setPlayerStep(s)}
+            isHandDrawn={isHandDrawn}
+            onToggleHandDrawn={() => setIsHandDrawn((prev) => !prev)}
           />
         </div>
 
@@ -3395,6 +3561,41 @@ export default function App() {
       <ShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* Dihedral & 3D Axonometric Projection Config Modal */}
+      <DiedricoModal
+        isOpen={isDiedricoModalOpen}
+        onClose={() => {
+          setIsDiedricoModalOpen(false);
+          cancelAction();
+        }}
+        onConfirm={(config: DiedricoConfig) => {
+          const templateEntities = createDiedricoTemplate(
+            currentPage.sheetSize,
+            { ...currentStyle, width: 0.5 },
+            { ...currentStyle, width: 0.25, color: '#64748b' },
+            config
+          );
+          pushState([...entities, ...templateEntities]);
+          if (config.axonometricSystem === 'cavalier') {
+            setGridMode('cavalier');
+          } else {
+            setGridMode('isometric');
+          }
+          setGridSnapEnabled(true);
+          const systemLabel =
+            config.axonometricSystem === 'cavalier'
+              ? 'Perspectiva Caballera 45º'
+              : config.axonometricSystem === 'military'
+              ? 'Perspectiva Militar'
+              : 'Perspectiva Isométrica';
+          setSaveStatus(`📐 Lámina de Vistas Diédricas y ${systemLabel} generada`);
+          setTimeout(() => setSaveStatus(''), 3000);
+          cancelAction();
+          setCurrentTool('cursor');
+          setIsDiedricoModalOpen(false);
+        }}
       />
     </div>
   );

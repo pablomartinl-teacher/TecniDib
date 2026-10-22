@@ -109,13 +109,66 @@ export async function loadProjectFromDB(): Promise<CadProject | null> {
   }
 }
 
+export const VEKTOR_FILE_EXTENSION = '.vektor';
+export const VEKTOR_FORMAT_SIGNATURE = 'VEKTORCAD_DOCUMENT';
+export const VEKTOR_FORMAT_VERSION = '2.1.0';
+
+export interface VektorDocumentFile {
+  $schema: string;
+  format: 'VEKTORCAD_DOCUMENT';
+  formatVersion: string;
+  generator: string;
+  savedAt: string;
+  projectName: string;
+  globalSheetSize: SheetSize;
+  currentPageIndex: number;
+  layers?: any[];
+  pages: Array<{
+    id: string;
+    title: string;
+    sheetSize: SheetSize;
+    bgImage: string | null;
+    data: CadEntity[];
+  }>;
+}
+
+/**
+ * Serializes a CadProject into the proprietary .vektor file format payload
+ * preserving 100% of entity attributes, styles, layers, and sheet configurations without any drift
+ */
+export function createVektorProjectFile(project: CadProject): string {
+  const filePayload: VektorDocumentFile = {
+    $schema: 'https://vektorcad.app/schema/v2.json',
+    format: VEKTOR_FORMAT_SIGNATURE,
+    formatVersion: VEKTOR_FORMAT_VERSION,
+    generator: 'VektorCAD Technical Drawing & Metric Geometry Engine',
+    savedAt: new Date().toISOString(),
+    projectName: project.projectName || 'Proyecto_VektorCAD',
+    globalSheetSize: project.globalSheetSize || DEFAULT_SHEET,
+    currentPageIndex: project.currentPageIndex || 0,
+    layers: project.layers || [],
+    pages: (project.pages || []).map((p) => ({
+      id: p.id,
+      title: p.title,
+      sheetSize: p.sheetSize || DEFAULT_SHEET,
+      bgImage: p.bgImage || null,
+      data: p.data || [],
+    })),
+  };
+  return JSON.stringify(filePayload, null, 2);
+}
+
+/**
+ * Downloads the project in VektorCAD's native proprietary format (.vektor)
+ */
 export function downloadProjectFile(project: CadProject, filename = 'Proyecto_VektorCAD') {
-  const json = JSON.stringify(project, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
+  const content = createVektorProjectFile(project);
+  const blob = new Blob([content], { type: 'application/vnd.vektorcad+json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${filename.replace(/\.json$/i, '')}.json`;
+  const cleanBaseName = filename.replace(/\.(vektor|vkcad|json)$/i, '');
+  a.download = `${cleanBaseName}.vektor`;
   a.click();
   URL.revokeObjectURL(url);
 }

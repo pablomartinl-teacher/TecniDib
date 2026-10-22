@@ -12,6 +12,7 @@ interface PropertyBarProps {
   onChangeStyle: (newStyle: Partial<EntityStyle>) => void;
   snapEnabled: boolean;
   onToggleSnap: () => void;
+  isCtrlHeld?: boolean;
   gridSnapEnabled: boolean;
   onToggleGridSnap: () => void;
   gridPitch: number;
@@ -37,6 +38,7 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
   onChangeStyle,
   snapEnabled,
   onToggleSnap,
+  isCtrlHeld = false,
   gridSnapEnabled,
   onToggleGridSnap,
   gridPitch,
@@ -62,14 +64,20 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
         <button
           onClick={onToggleSnap}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition border ${
-            snapEnabled
+            isCtrlHeld && snapEnabled
+              ? 'bg-amber-600/90 text-white border-amber-500 shadow-sm animate-pulse'
+              : snapEnabled
               ? 'bg-emerald-600/90 text-white border-emerald-500 shadow-sm'
               : 'bg-[#22242c] text-neutral-400 border-[#333744] hover:text-white'
           }`}
-          title="Imantado Magnético Automático (Extremos, Medios, Centros, Intersecciones)"
+          title={
+            isCtrlHeld && snapEnabled
+              ? 'Imán en pausa temporal mientras mantienes pulsada la tecla Control (se reactivará al soltar)'
+              : 'Imantado Magnético Automático (Extremos, Medios, Centros, Intersecciones). Mantén pulsado Ctrl para pausarlo temporalmente.'
+          }
         >
           <Magnet className="w-3.5 h-3.5" />
-          <span>Imán {snapEnabled ? 'ON' : 'OFF'}</span>
+          <span>{isCtrlHeld && snapEnabled ? 'Imán PAUSA (Ctrl)' : snapEnabled ? 'Imán ON' : 'Imán OFF'}</span>
         </button>
 
         {/* Grid Snap & Pitch */}

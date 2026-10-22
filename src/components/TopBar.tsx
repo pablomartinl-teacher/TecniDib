@@ -26,6 +26,7 @@ import {
   Layers,
   Sparkles,
   HelpCircle,
+  X,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
@@ -70,6 +71,10 @@ interface TopBarProps {
   onOpenShortcuts?: () => void;
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
+  hasBgImage?: boolean;
+  showBgImage?: boolean;
+  onToggleBgImage?: () => void;
+  onRemoveBgImage?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -112,6 +117,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenShortcuts,
   isFocusMode = false,
   onToggleFocusMode,
+  hasBgImage = false,
+  showBgImage = true,
+  onToggleBgImage,
+  onRemoveBgImage,
 }) => {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -261,14 +270,38 @@ export const TopBar: React.FC<TopBarProps> = ({
         </button>
 
         {/* PDF Base */}
-        <button
-          onClick={() => pdfInputRef.current?.click()}
-          className="px-2 py-1 rounded-lg text-xs font-medium bg-[#22242c] hover:bg-[#2d303b] border border-[#333742] text-neutral-200 transition flex items-center gap-1"
-          title="Cargar PDF como fondo de calco/enunciado"
-        >
-          <FileText className="w-3.5 h-3.5 text-amber-400" />
-          <span className="hidden 2xl:inline">PDF Base</span>
-        </button>
+        {hasBgImage ? (
+          <div className="flex items-center bg-[#13141a] rounded-lg border border-[#2d313d] p-0.5 gap-1 shrink-0">
+            <button
+              onClick={onToggleBgImage}
+              className={`px-2 py-1 rounded text-xs font-medium transition flex items-center gap-1 ${
+                showBgImage
+                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
+                  : 'text-neutral-400 hover:text-white hover:bg-[#252833]'
+              }`}
+              title={showBgImage ? 'Ocultar PDF base de la lámina' : 'Mostrar PDF base en la lámina'}
+            >
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              <span>{showBgImage ? 'Ocultar PDF' : 'Ver PDF'}</span>
+            </button>
+            <button
+              onClick={onRemoveBgImage}
+              className="p-1 text-neutral-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition"
+              title="Quitar PDF base del lienzo"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => pdfInputRef.current?.click()}
+            className="px-2 py-1 rounded-lg text-xs font-medium bg-[#22242c] hover:bg-[#2d303b] border border-[#333742] text-neutral-200 transition flex items-center gap-1 shrink-0"
+            title="Cargar PDF como fondo de calco/enunciado"
+          >
+            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden xl:inline">PDF Base</span>
+          </button>
+        )}
         <input
           ref={pdfInputRef}
           type="file"
@@ -287,26 +320,27 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="hidden xl:inline">Recorte</span>
         </button>
 
-        {/* Project JSON Save/Open */}
+        {/* Project Native .vektor Save/Open */}
         <div className="flex items-center bg-[#13141a] rounded-lg border border-[#2d313d] p-0.5">
           <button
             onClick={onSaveToFile}
-            className="p-1 rounded text-neutral-300 hover:text-white hover:bg-[#252833] transition"
-            title="Guardar archivo de proyecto (.json)"
+            className="px-1.5 py-1 rounded text-xs font-semibold text-neutral-200 hover:text-white hover:bg-[#252833] transition flex items-center gap-1"
+            title="Guardar Proyecto en formato nativo VektorCAD (.vektor) - Guarda láminas, capas, cotas y elementos sin pérdida"
           >
-            <Save className="w-3.5 h-3.5" />
+            <Save className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden xl:inline text-[11px] font-mono">.vektor</span>
           </button>
           <button
             onClick={() => jsonInputRef.current?.click()}
             className="p-1 rounded text-neutral-300 hover:text-white hover:bg-[#252833] transition"
-            title="Abrir archivo de proyecto (.json)"
+            title="Abrir Proyecto (.vektor, .vkcad, .json)"
           >
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
           <input
             ref={jsonInputRef}
             type="file"
-            accept=".json,.vektor,.vektorcad,application/json,text/plain"
+            accept=".vektor,.vkcad,.json,application/json,application/vnd.vektorcad+json,text/plain"
             className="hidden"
             onChange={onLoadFromFile}
           />

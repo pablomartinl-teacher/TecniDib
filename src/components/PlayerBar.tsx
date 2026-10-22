@@ -12,6 +12,7 @@ import {
   RotateCcw,
   FastForward,
   X,
+  PenTool,
   Layers,
 } from 'lucide-react';
 
@@ -21,6 +22,8 @@ export interface PlayerBarProps {
   totalSteps: number;
   currentStep: number;
   onStepChange: (step: number) => void;
+  isHandDrawn?: boolean;
+  onToggleHandDrawn?: () => void;
 }
 
 export const PlayerBar: React.FC<PlayerBarProps> = ({
@@ -29,6 +32,8 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   totalSteps,
   currentStep,
   onStepChange,
+  isHandDrawn = true,
+  onToggleHandDrawn,
 }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [speed, setSpeed] = useState<number>(1000); // ms per step
@@ -167,6 +172,23 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
           2x
         </button>
       </div>
+
+      {/* Hand-drawn sketch simulation toggle */}
+      {onToggleHandDrawn && (
+        <button
+          type="button"
+          onClick={onToggleHandDrawn}
+          title={isHandDrawn ? 'Desactivar simulación mano alzada' : 'Activar simulación de trazado a mano alzada'}
+          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition border ${
+            isHandDrawn
+              ? 'bg-amber-600/30 text-amber-300 border-amber-500/60 shadow-sm'
+              : 'bg-slate-800 text-slate-400 hover:text-white border-slate-700'
+          }`}
+        >
+          <PenTool size={12} className={isHandDrawn ? 'text-amber-400' : ''} />
+          <span className="hidden sm:inline">Mano alzada</span>
+        </button>
+      )}
 
       {/* Close button */}
       <button
