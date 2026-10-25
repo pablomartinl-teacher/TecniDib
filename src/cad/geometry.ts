@@ -673,12 +673,38 @@ export function getHitEntity(pos: Point2D, entities: CadEntity[], tolerance = 5)
         if (ds < d) d = ds;
       }
     } else if (ent.type === 'image') {
-      if (pos.x >= ent.x && pos.x <= ent.x + ent.width && pos.y >= ent.y && pos.y <= ent.y + ent.height) {
+      const cx = ent.x + ent.width / 2;
+      const cy = ent.y + ent.height / 2;
+      let px = pos.x;
+      let py = pos.y;
+      if (ent.rotation) {
+        const rad = (-ent.rotation * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const dx = pos.x - cx;
+        const dy = pos.y - cy;
+        px = cx + dx * cos - dy * sin;
+        py = cy + dx * sin + dy * cos;
+      }
+      if (px >= ent.x && px <= ent.x + ent.width && py >= ent.y && py <= ent.y + ent.height) {
         d = 0;
       }
     } else if (ent.type === 'text') {
       const h = ent.h || 20;
-      if (pos.x >= ent.x && pos.x <= ent.x + ent.w && pos.y >= ent.y && pos.y <= ent.y + h) {
+      const cx = ent.x + ent.w / 2;
+      const cy = ent.y + h / 2;
+      let px = pos.x;
+      let py = pos.y;
+      if (ent.angle) {
+        const rad = (-ent.angle * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const dx = pos.x - cx;
+        const dy = pos.y - cy;
+        px = cx + dx * cos - dy * sin;
+        py = cy + dx * sin + dy * cos;
+      }
+      if (px >= ent.x && px <= ent.x + ent.w && py >= ent.y && py <= ent.y + h) {
         d = 0;
       }
     }

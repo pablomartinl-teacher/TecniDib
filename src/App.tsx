@@ -157,8 +157,9 @@ export default function App() {
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Text Box Handle Resize State (vertical & horizontal)
-  interface TextResizeState {
+  // Entity Transformation State (8-way resize + free rotation for text & image)
+  interface TransformState {
+    entityType: 'text' | 'image';
     entityId: number;
     handle: string;
     startX: number;
@@ -167,8 +168,10 @@ export default function App() {
     origY: number;
     origW: number;
     origH: number;
+    origAngle: number;
+    aspectRatio: number;
   }
-  const [textResize, setTextResize] = useState<TextResizeState | null>(null);
+  const [transformState, setTransformState] = useState<TransformState | null>(null);
 
   // Layers & Didactic Construction State
   const DEFAULT_LAYERS: LayerConfig[] = [
@@ -301,7 +304,7 @@ export default function App() {
     setHasClonedInDrag(false);
     setActiveAlignX(null);
     setActiveAlignY(null);
-    setTextResize(null);
+    setTransformState(null);
   };
 
   // Convert client mouse/touch to SVG mm coordinates with snapping
@@ -1230,25 +1233,36 @@ export default function App() {
     const pos = getCanvasCoords(e);
     setCoords(pos);
 
-    // 1. Check if clicking on text resize handle (vertical or horizontal)
+    // 1. Check if clicking on transformation handle (resize or rotate for text and image)
     const targetEl = e.target as SVGElement;
-    const handleType = targetEl?.getAttribute ? targetEl.getAttribute('data-text-handle') : null;
-    const textEntityId = targetEl?.getAttribute ? targetEl.getAttribute('data-text-id') : null;
+    const transformHandle = targetEl?.getAttribute
+      ? targetEl.getAttribute('data-transform-handle') || targetEl.getAttribute('data-text-handle')
+      : null;
+    const entityIdAttr = targetEl?.getAttribute
+      ? targetEl.getAttribute('data-entity-id') || targetEl.getAttribute('data-text-id')
+      : null;
 
-    if (handleType && textEntityId) {
-      const textEnt = entities.find(
-        (ent) => ent.id === Number(textEntityId) && ent.type === 'text'
-      ) as TextEntity | undefined;
-      if (textEnt) {
-        setTextResize({
-          entityId: textEnt.id,
-          handle: handleType,
+    if (transformHandle && entityIdAttr) {
+      const eid = Number(entityIdAttr);
+      const targetEnt = entities.find((ent) => ent.id === eid);
+      if (targetEnt && (targetEnt.type === 'text' || targetEnt.type === 'image')) {
+        const isImg = targetEnt.type === 'image';
+        const origW = isImg ? targetEnt.width : (targetEnt.w || 60);
+        const origH = isImg ? targetEnt.height : (targetEnt.h || 25);
+        const origAngle = isImg ? (targetEnt.rotation || 0) : (targetEnt.angle || 0);
+
+        setTransformState({
+          entityType: targetEnt.type,
+          entityId: eid,
+          handle: transformHandle,
           startX: pos.x,
           startY: pos.y,
-          origX: textEnt.x,
-          origY: textEnt.y,
-          origW: textEnt.w,
-          origH: textEnt.h || 25,
+          origX: targetEnt.x,
+          origY: targetEnt.y,
+          origW,
+          origH,
+          origAngle,
+          aspectRatio: origW / Math.max(1, origH),
         });
         setIsDrawing(true);
         return;
@@ -2097,40 +2111,85 @@ export default function App() {
 
     if (!isDrawing) return;
 
-    // Handle text box resize via handles (vertical & horizontal)
-    if (textResize) {
+    // Handle entity transformation (resize & free rotation for text and image)
+    if (transformState) {
       const targetEntity = entities.find(
-        (ent) => ent.id === textResize.entityId && ent.type === 'text'
-      ) as TextEntity | undefined;
+        (ent) => ent.id === transformState.entityId && ent.type === transformState.entityType
+      );
       if (targetEntity) {
-        const dx = pos.x - textResize.startX;
-        const dy = pos.y - textResize.startY;
-        let newX = textResize.origX;
-        let newY = textResize.origY;
-        let newW = textResize.origW;
-        let newH = textResize.origH;
+        if (transformState.handle === 'rotate') {
+          const cx = transformState.origX + transformState.origW / 2;
+          const cy = transformState.origY + transformState.origH / 2;
+          const angleRad = Math.atan2(pos.y - cy, pos.x - cx);
+          let deg = (angleRad * 180) / Math.PI + 90;
+          while (deg < 0) deg += 360;
+          while (deg >= 360) deg -= 360;
 
-        // Horizontal handles & corners
-        if (textResize.handle === 'e' || textResize.handle === 'ne' || textResize.handle === 'se') {
-          newW = Math.max(15, textResize.origW + dx);
-        } else if (textResize.handle === 'w' || textResize.handle === 'nw' || textResize.handle === 'sw') {
-          newW = Math.max(15, textResize.origW - dx);
-          newX = textResize.origX + (textResize.origW - newW);
+          if (e.shiftKey || orthoMode) {
+            deg = Math.round(deg / 15) * 15;
+            if (deg >= 360) deg = 0;
+          } else {
+            deg = Math.round(deg * 10) / 10;
+          }
+
+          if (targetEntity.type === 'text') {
+            (targetEntity as TextEntity).angle = deg;
+          } else if (targetEntity.type === 'image') {
+            (targetEntity as ImageEntity).rotation = deg;
+          }
+          setSaveStatus(`🔄 Rotación: ${deg.toFixed(1)}º (Shift para saltos de 15º)`);
+          setProject((prev) => ({ ...prev }));
+        } else {
+          const dx = pos.x - transformState.startX;
+          const dy = pos.y - transformState.startY;
+          let newX = transformState.origX;
+          let newY = transformState.origY;
+          let newW = transformState.origW;
+          let newH = transformState.origH;
+          const isCorner = ['nw', 'ne', 'se', 'sw'].includes(transformState.handle);
+
+          if (transformState.handle === 'e' || transformState.handle === 'ne' || transformState.handle === 'se') {
+            newW = Math.max(10, transformState.origW + dx);
+          } else if (transformState.handle === 'w' || transformState.handle === 'nw' || transformState.handle === 'sw') {
+            newW = Math.max(10, transformState.origW - dx);
+            newX = transformState.origX + (transformState.origW - newW);
+          }
+
+          if (transformState.handle === 's' || transformState.handle === 'se' || transformState.handle === 'sw') {
+            newH = Math.max(8, transformState.origH + dy);
+          } else if (transformState.handle === 'n' || transformState.handle === 'ne' || transformState.handle === 'nw') {
+            newH = Math.max(8, transformState.origH - dy);
+            newY = transformState.origY + (transformState.origH - newH);
+          }
+
+          // If corner scaling image and Shift NOT pressed: preserve aspect ratio
+          if (targetEntity.type === 'image' && isCorner && !e.shiftKey) {
+            const scaleRatio = Math.max(newW / transformState.origW, newH / transformState.origH);
+            newW = Math.max(10, transformState.origW * scaleRatio);
+            newH = Math.max(8, newW / transformState.aspectRatio);
+            if (transformState.handle === 'nw') {
+              newX = transformState.origX + (transformState.origW - newW);
+              newY = transformState.origY + (transformState.origH - newH);
+            } else if (transformState.handle === 'ne') {
+              newY = transformState.origY + (transformState.origH - newH);
+            } else if (transformState.handle === 'sw') {
+              newX = transformState.origX + (transformState.origW - newW);
+            }
+          }
+
+          if (targetEntity.type === 'text') {
+            (targetEntity as TextEntity).x = newX;
+            (targetEntity as TextEntity).y = newY;
+            (targetEntity as TextEntity).w = newW;
+            (targetEntity as TextEntity).h = newH;
+          } else if (targetEntity.type === 'image') {
+            (targetEntity as ImageEntity).x = newX;
+            (targetEntity as ImageEntity).y = newY;
+            (targetEntity as ImageEntity).width = newW;
+            (targetEntity as ImageEntity).height = newH;
+          }
+          setProject((prev) => ({ ...prev }));
         }
-
-        // Vertical handles & corners
-        if (textResize.handle === 's' || textResize.handle === 'se' || textResize.handle === 'sw') {
-          newH = Math.max(10, textResize.origH + dy);
-        } else if (textResize.handle === 'n' || textResize.handle === 'ne' || textResize.handle === 'nw') {
-          newH = Math.max(10, textResize.origH - dy);
-          newY = textResize.origY + (textResize.origH - newH);
-        }
-
-        targetEntity.x = newX;
-        targetEntity.y = newY;
-        targetEntity.w = newW;
-        targetEntity.h = newH;
-        setProject((prev) => ({ ...prev }));
       }
       return;
     }
@@ -2420,11 +2479,13 @@ export default function App() {
       return;
     }
 
-    if (textResize) {
-      setTextResize(null);
+    if (transformState) {
+      const typeLabel = transformState.entityType === 'text' ? 'Caja de texto' : 'Recorte/Imagen';
+      const actionLabel = transformState.handle === 'rotate' ? 'rotada' : 'transformada';
+      setTransformState(null);
       setIsDrawing(false);
-      pushState([...entities]);
-      setSaveStatus('📐 Caja de texto ajustada');
+      pushState([...allEntities]);
+      setSaveStatus(`📐 ${typeLabel} ${actionLabel} correctamente`);
       setTimeout(() => setSaveStatus(''), 1500);
       return;
     }
@@ -2950,22 +3011,28 @@ export default function App() {
     setTimeout(() => setSaveStatus(''), 2500);
   };
 
-  const handleExportPDF = () => {
-    const defaultName = project.projectName || 'Lamina_CAD';
-    const chosenName = prompt('Nombre del archivo PDF a exportar:', defaultName);
-    if (chosenName === null) return;
-    const fileName = chosenName.trim() || defaultName;
-    const allPages =
-      project.pages.length > 1 &&
-      confirm(
-        '¿Deseas exportar todas las láminas en un único PDF? (Aceptar: Todas las láminas, Cancelar: Solo la actual)'
-      );
-    exportProjectToPDF(project.pages, currentPageIndex, svgRef.current, {
-      fileName,
-      allPages,
-    });
-    setSaveStatus(`📑 PDF "${fileName}.pdf" descargado`);
-    setTimeout(() => setSaveStatus(''), 2500);
+  const handleExportPDF = async () => {
+    try {
+      const defaultName = project.projectName || 'Lamina_CAD';
+      let fileName = defaultName;
+      if (typeof window !== 'undefined' && window.prompt) {
+        const chosen = window.prompt('Nombre del archivo PDF a exportar:', defaultName);
+        if (chosen !== null && chosen.trim() !== '') {
+          fileName = chosen.trim();
+        }
+      }
+      setSaveStatus('⏳ Generando PDF de alta definición (300 DPI)...');
+      await exportProjectToPDF(project.pages, currentPageIndex, svgRef.current, {
+        fileName,
+        allPages: project.pages.length > 1,
+      });
+      setSaveStatus(`📑 PDF "${fileName}.pdf" descargado`);
+      setTimeout(() => setSaveStatus(''), 2500);
+    } catch (err) {
+      console.error('Error al exportar PDF:', err);
+      setSaveStatus('❌ Error al exportar PDF');
+      setTimeout(() => setSaveStatus(''), 3000);
+    }
   };
 
   const handleExportSVG = () => {
@@ -3053,7 +3120,7 @@ export default function App() {
               setSelectedEntities([]);
               setReferenceLine(null);
               setCurvePoints([]);
-              setTextResize(null);
+              setTransformState(null);
               setKeyboardInput('');
               setProject(loaded);
               if (loaded.layers && Array.isArray(loaded.layers) && loaded.layers.length > 0) {

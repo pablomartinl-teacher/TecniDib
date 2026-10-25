@@ -500,7 +500,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         const halfH = handleH / 2;
 
         return (
-          <g key={ent.id} className="group">
+          <g
+            key={ent.id}
+            className="group"
+            transform={ent.angle ? `rotate(${ent.angle} ${ent.x + boxW / 2} ${ent.y + boxH / 2})` : undefined}
+          >
             {/* Clickable background hit area so selecting and moving text box always succeeds */}
             <rect
               x={ent.x}
@@ -558,6 +562,34 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   pointerEvents="none"
                 />
 
+                {/* Free Rotation Handle with Stem Line and Knob */}
+                <line
+                  x1={ent.x + boxW / 2}
+                  y1={ent.y}
+                  x2={ent.x + boxW / 2}
+                  y2={ent.y - 12}
+                  stroke="#0284c7"
+                  strokeWidth={0.6}
+                  strokeDasharray="1.5,1.5"
+                  pointerEvents="none"
+                />
+                <circle
+                  cx={ent.x + boxW / 2}
+                  cy={ent.y - 12}
+                  r={3.2}
+                  fill="#0284c7"
+                  stroke="#ffffff"
+                  strokeWidth={0.8}
+                  style={{ cursor: 'grab' }}
+                  data-transform-handle="rotate"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
+                  data-text-handle="rotate"
+                  data-text-id={ent.id}
+                >
+                  <title>Girar caja de texto libremente (arrastrar para rotar)</title>
+                </circle>
+
                 {/* Horizontal resize handles (Left and Right - width adjustment) */}
                 <rect
                   x={ent.x - halfW}
@@ -569,6 +601,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'ew-resize' }}
+                  data-transform-handle="w"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="w"
                   data-text-id={ent.id}
                 >
@@ -584,6 +619,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'ew-resize' }}
+                  data-transform-handle="e"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="e"
                   data-text-id={ent.id}
                 >
@@ -601,6 +639,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'ns-resize' }}
+                  data-transform-handle="n"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="n"
                   data-text-id={ent.id}
                 >
@@ -616,6 +657,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'ns-resize' }}
+                  data-transform-handle="s"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="s"
                   data-text-id={ent.id}
                 >
@@ -633,6 +677,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'nwse-resize' }}
+                  data-transform-handle="nw"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="nw"
                   data-text-id={ent.id}
                 >
@@ -648,6 +695,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'nesw-resize' }}
+                  data-transform-handle="ne"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="ne"
                   data-text-id={ent.id}
                 >
@@ -663,6 +713,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'nesw-resize' }}
+                  data-transform-handle="sw"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="sw"
                   data-text-id={ent.id}
                 >
@@ -678,13 +731,16 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   stroke="#0284c7"
                   strokeWidth={0.5}
                   style={{ cursor: 'nwse-resize' }}
+                  data-transform-handle="se"
+                  data-entity-id={ent.id}
+                  data-entity-type="text"
                   data-text-handle="se"
                   data-text-id={ent.id}
                 >
                   <title>Esquina inferior derecha</title>
                 </rect>
 
-                {/* Live dimension badge */}
+                {/* Live dimension & rotation badge */}
                 <text
                   x={ent.x + boxW / 2}
                   y={ent.y - 2.5}
@@ -695,7 +751,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   textAnchor="middle"
                   pointerEvents="none"
                 >
-                  {`${boxW.toFixed(1)} × ${boxH.toFixed(1)} mm`}
+                  {`${boxW.toFixed(1)} × ${boxH.toFixed(1)} mm${ent.angle ? ` (${ent.angle.toFixed(1)}º)` : ''}`}
                 </text>
               </g>
             )}
@@ -745,37 +801,237 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         );
       }
 
-      case 'image':
+      case 'image': {
         if (!ent.href || typeof ent.href !== 'string' || ent.href.trim() === '' || ent.href === 'null') {
           return null;
         }
+        const imgW = ent.width || 50;
+        const imgH = ent.height || 50;
+        const handleW = 3.6;
+        const handleH = 3.6;
+        const halfW = handleW / 2;
+        const halfH = handleH / 2;
+
         return (
-          <g key={ent.id}>
+          <g
+            key={ent.id}
+            className="group"
+            transform={ent.rotation ? `rotate(${ent.rotation} ${ent.x + imgW / 2} ${ent.y + imgH / 2})` : undefined}
+          >
+            {/* Clickable hit area for selection and moving */}
+            <rect
+              x={ent.x}
+              y={ent.y}
+              width={imgW}
+              height={imgH}
+              fill="transparent"
+              stroke="none"
+              style={{ cursor: isSelected ? 'move' : 'pointer' }}
+            />
             <image
               x={ent.x}
               y={ent.y}
-              width={ent.width}
-              height={ent.height}
+              width={imgW}
+              height={imgH}
               href={ent.href}
-              opacity={isSelected ? 0.75 : 1}
+              xlinkHref={ent.href}
+              opacity={isSelected ? 0.8 : (ent.opacity ?? 1)}
+              style={{ pointerEvents: 'none' }}
               onError={(e) => {
                 (e.currentTarget as any).style.display = 'none';
               }}
             />
             {isSelected && (
-              <rect
-                x={ent.x}
-                y={ent.y}
-                width={ent.width}
-                height={ent.height}
-                fill="none"
-                stroke="#0284c7"
-                strokeWidth={0.8}
-                strokeDasharray="4,4"
-              />
+              <g>
+                {/* Bounding box dashed outline */}
+                <rect
+                  x={ent.x}
+                  y={ent.y}
+                  width={imgW}
+                  height={imgH}
+                  fill="rgba(2, 132, 199, 0.05)"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  strokeDasharray="3,3"
+                  pointerEvents="none"
+                />
+
+                {/* Free Rotation Handle with Stem Line and Knob */}
+                <line
+                  x1={ent.x + imgW / 2}
+                  y1={ent.y}
+                  x2={ent.x + imgW / 2}
+                  y2={ent.y - 12}
+                  stroke="#0284c7"
+                  strokeWidth={0.6}
+                  strokeDasharray="1.5,1.5"
+                  pointerEvents="none"
+                />
+                <circle
+                  cx={ent.x + imgW / 2}
+                  cy={ent.y - 12}
+                  r={3.2}
+                  fill="#0284c7"
+                  stroke="#ffffff"
+                  strokeWidth={0.8}
+                  style={{ cursor: 'grab' }}
+                  data-transform-handle="rotate"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Girar recorte / imagen libremente (arrastrar para rotar)</title>
+                </circle>
+
+                {/* Corner resize handles (NW, NE, SE, SW) */}
+                <rect
+                  x={ent.x - halfW}
+                  y={ent.y - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nwse-resize' }}
+                  data-transform-handle="nw"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Escalar esquina superior izquierda</title>
+                </rect>
+                <rect
+                  x={ent.x + imgW - halfW}
+                  y={ent.y - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nesw-resize' }}
+                  data-transform-handle="ne"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Escalar esquina superior derecha</title>
+                </rect>
+                <rect
+                  x={ent.x - halfW}
+                  y={ent.y + imgH - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nesw-resize' }}
+                  data-transform-handle="sw"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Escalar esquina inferior izquierda</title>
+                </rect>
+                <rect
+                  x={ent.x + imgW - halfW}
+                  y={ent.y + imgH - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'nwse-resize' }}
+                  data-transform-handle="se"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Escalar esquina inferior derecha</title>
+                </rect>
+
+                {/* Side resize handles (N, S, W, E) */}
+                <rect
+                  x={ent.x + imgW / 2 - halfW}
+                  y={ent.y - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ns-resize' }}
+                  data-transform-handle="n"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Ajustar alto superior</title>
+                </rect>
+                <rect
+                  x={ent.x + imgW / 2 - halfW}
+                  y={ent.y + imgH - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ns-resize' }}
+                  data-transform-handle="s"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Ajustar alto inferior</title>
+                </rect>
+                <rect
+                  x={ent.x - halfW}
+                  y={ent.y + imgH / 2 - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ew-resize' }}
+                  data-transform-handle="w"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Ajustar ancho izquierdo</title>
+                </rect>
+                <rect
+                  x={ent.x + imgW - halfW}
+                  y={ent.y + imgH / 2 - halfH}
+                  width={handleW}
+                  height={handleH}
+                  rx={0.6}
+                  fill="#ffffff"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                  style={{ cursor: 'ew-resize' }}
+                  data-transform-handle="e"
+                  data-entity-id={ent.id}
+                  data-entity-type="image"
+                >
+                  <title>Ajustar ancho derecho</title>
+                </rect>
+
+                {/* Live dimension & rotation badge */}
+                <text
+                  x={ent.x + imgW / 2}
+                  y={ent.y - 2.5}
+                  fill="#0284c7"
+                  fontSize={2.5}
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  pointerEvents="none"
+                >
+                  {`${imgW.toFixed(1)} × ${imgH.toFixed(1)} mm${ent.rotation ? ` (${ent.rotation.toFixed(1)}º)` : ''}`}
+                </text>
+              </g>
             )}
           </g>
         );
+      }
 
       case 'ellipse': {
         const el = ent as EllipseEntity;

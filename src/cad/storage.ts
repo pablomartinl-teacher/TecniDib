@@ -266,6 +266,7 @@ export function normalizeEntity(ent: any): CadEntity {
         text: textPlain,
         fontSize,
         align: ent.align || 'left',
+        angle: typeof ent.angle === 'number' ? ent.angle : parseFloat(ent.angle) || 0,
         layer,
         style,
       } as TextEntity;
@@ -444,7 +445,9 @@ export function normalizeEntity(ent: any): CadEntity {
         y: typeof ent.y === 'number' ? ent.y : parseFloat(ent.y) || 0,
         width: typeof ent.width === 'number' ? ent.width : parseFloat(ent.width) || 50,
         height: typeof ent.height === 'number' ? ent.height : parseFloat(ent.height) || 50,
-        href: ent.href || '',
+        href: ent.href || ent.src || '',
+        rotation: typeof ent.rotation === 'number' ? ent.rotation : parseFloat(ent.rotation) || 0,
+        opacity: typeof ent.opacity === 'number' ? ent.opacity : 1,
         layer,
         style,
       };

@@ -164,6 +164,7 @@ export interface TextEntity extends BaseEntity {
   text?: string;
   fontSize: number;
   align?: 'left' | 'center' | 'right' | 'justify';
+  angle?: number; // rotation angle in degrees (0 - 360)
 }
 
 export interface FillEntity extends BaseEntity {
@@ -180,6 +181,8 @@ export interface ImageEntity extends BaseEntity {
   width: number;
   height: number;
   href: string;
+  rotation?: number; // rotation in degrees (0 - 360)
+  opacity?: number;
 }
 
 export interface EllipseEntity extends BaseEntity {

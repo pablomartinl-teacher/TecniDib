@@ -28,6 +28,10 @@ export const EditModal: React.FC<EditModalProps> = ({
   const [tagText, setTagText] = useState('');
   const [tagFontSize, setTagFontSize] = useState(4);
   const [imageWidth, setImageWidth] = useState(50);
+  const [imageHeight, setImageHeight] = useState(50);
+  const [imageRotation, setImageRotation] = useState(0);
+  const [lockRatio, setLockRatio] = useState(true);
+  const [textAngle, setTextAngle] = useState(0);
   const [symbolType, setSymbolType] = useState<SymbolType>('perp');
 
   useEffect(() => {
@@ -41,7 +45,11 @@ export const EditModal: React.FC<EditModalProps> = ({
       setTagText(entity.text);
       setTagFontSize(entity.fontSize || 4);
     } else if (entity.type === 'image') {
-      setImageWidth(entity.width);
+      setImageWidth(entity.width || 50);
+      setImageHeight(entity.height || 50);
+      setImageRotation(entity.rotation || 0);
+    } else if (entity.type === 'text') {
+      setTextAngle((entity as any).angle || 0);
     } else if (entity.type === 'symbol') {
       setSymbolType(entity.symbolType || 'perp');
     }
@@ -63,9 +71,11 @@ export const EditModal: React.FC<EditModalProps> = ({
       updated.text = tagText;
       updated.fontSize = tagFontSize;
     } else if (updated.type === 'image') {
-      const ratio = updated.height / updated.width;
       updated.width = imageWidth;
-      updated.height = imageWidth * ratio;
+      updated.height = imageHeight;
+      (updated as any).rotation = imageRotation;
+    } else if (updated.type === 'text') {
+      (updated as any).angle = textAngle;
     } else if (updated.type === 'symbol') {
       updated.symbolType = symbolType;
     }
@@ -116,7 +126,7 @@ export const EditModal: React.FC<EditModalProps> = ({
           )}
 
           {entity.type === 'image' && (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2.5">
               <div className="flex justify-between items-center">
                 <span className="text-neutral-300">Ancho en lámina:</span>
                 <div className="flex items-center gap-1.5">
@@ -124,15 +134,117 @@ export const EditModal: React.FC<EditModalProps> = ({
                     type="number"
                     step="1"
                     min="5"
-                    max="400"
+                    max="600"
                     value={imageWidth}
-                    onChange={(e) => setImageWidth(parseFloat(e.target.value) || 50)}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 10;
+                      setImageWidth(val);
+                      if (lockRatio && entity.width > 0) {
+                        setImageHeight(Math.round(val * (entity.height / entity.width)));
+                      }
+                    }}
                     className="w-20 bg-[#14151a] border border-[#373a46] rounded px-2 py-1 text-right text-white"
                   />
                   <span className="text-neutral-400">mm</span>
                 </div>
               </div>
-              <span className="text-[10px] text-neutral-400">El alto se escala proporcionalmente.</span>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neutral-300">Alto en lámina:</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    step="1"
+                    min="5"
+                    max="600"
+                    value={imageHeight}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 10;
+                      setImageHeight(val);
+                      if (lockRatio && entity.height > 0) {
+                        setImageWidth(Math.round(val * (entity.width / entity.height)));
+                      }
+                    }}
+                    className="w-20 bg-[#14151a] border border-[#373a46] rounded px-2 py-1 text-right text-white"
+                  />
+                  <span className="text-neutral-400">mm</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-neutral-400 text-[11px]">Proporción bloqueada:</span>
+                <button
+                  type="button"
+                  onClick={() => setLockRatio(!lockRatio)}
+                  className={`px-2 py-0.5 rounded text-[11px] ${lockRatio ? 'bg-sky-600 text-white' : 'bg-[#2b2e38] text-neutral-300'}`}
+                >
+                  {lockRatio ? 'Bloqueada 🔒' : 'Libre 🔓'}
+                </button>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neutral-300">Rotación:</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="360"
+                    value={imageRotation}
+                    onChange={(e) => setImageRotation(parseFloat(e.target.value) || 0)}
+                    className="w-16 bg-[#14151a] border border-[#373a46] rounded px-2 py-1 text-right text-white"
+                  />
+                  <span className="text-neutral-400">º</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setImageRotation((prev) => (prev - 90 + 360) % 360)}
+                      className="px-1.5 py-0.5 bg-[#2b2e38] text-neutral-200 hover:bg-[#393d4a] rounded text-[10px]"
+                      title="Girar 90º a la izquierda"
+                    >
+                      ↺ -90º
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageRotation((prev) => (prev + 90) % 360)}
+                      className="px-1.5 py-0.5 bg-[#2b2e38] text-neutral-200 hover:bg-[#393d4a] rounded text-[10px]"
+                      title="Girar 90º a la derecha"
+                    >
+                      ↻ +90º
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {entity.type === 'text' && (
+            <div className="flex justify-between items-center">
+              <span className="text-neutral-300">Giro de la caja:</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="360"
+                  value={textAngle}
+                  onChange={(e) => setTextAngle(parseFloat(e.target.value) || 0)}
+                  className="w-16 bg-[#14151a] border border-[#373a46] rounded px-2 py-1 text-right text-white"
+                />
+                <span className="text-neutral-400">º</span>
+                <div className="flex items-center gap-1">
+                  {[0, 45, 90, 180, 270].map((deg) => (
+                    <button
+                      key={deg}
+                      type="button"
+                      onClick={() => setTextAngle(deg)}
+                      className={`px-1.5 py-0.5 text-[10px] rounded ${textAngle === deg ? 'bg-sky-600 text-white font-bold' : 'bg-[#2b2e38] text-neutral-300 hover:bg-[#393d4a]'}`}
+                    >
+                      {deg}º
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

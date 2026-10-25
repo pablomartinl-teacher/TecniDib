@@ -34,12 +34,14 @@ export const RichTextModal: React.FC<RichTextModalProps> = ({
   const [fontSize, setFontSize] = useState<number>(6);
   const [color, setColor] = useState<string>('#000000');
   const [align, setAlign] = useState<'left' | 'center' | 'right' | 'justify'>('left');
+  const [angle, setAngle] = useState<number>(0);
 
   useEffect(() => {
     if (!isOpen || !entity) return;
     setFontSize(entity.fontSize || 6);
     setColor(entity.style?.color || '#000000');
     setAlign(entity.align || 'left');
+    setAngle(entity.angle || 0);
     if (editorRef.current) {
       editorRef.current.innerHTML = entity.textHtml || '';
     }
@@ -71,6 +73,7 @@ export const RichTextModal: React.FC<RichTextModalProps> = ({
       textHtml: html,
       fontSize,
       align,
+      angle,
       h: heightCalc,
       style: {
         ...entity.style,
@@ -204,6 +207,32 @@ export const RichTextModal: React.FC<RichTextModalProps> = ({
               onChange={(e) => setColor(e.target.value)}
               className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
             />
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-[#20222a] px-2 py-1 rounded-lg ml-auto">
+            <span className="text-neutral-400 text-[11px]">Giro:</span>
+            <input
+              type="number"
+              min="0"
+              max="360"
+              step="1"
+              value={angle}
+              onChange={(e) => setAngle(parseFloat(e.target.value) || 0)}
+              className="w-14 bg-[#14151b] border border-[#373a46] rounded px-1.5 py-0.5 text-center text-white"
+            />
+            <span className="text-neutral-400 text-[10px]">º</span>
+            <div className="flex items-center gap-1">
+              {[0, 45, 90, 180, 270].map((deg) => (
+                <button
+                  key={deg}
+                  type="button"
+                  onClick={() => setAngle(deg)}
+                  className={`px-1.5 py-0.5 text-[10px] rounded ${angle === deg ? 'bg-sky-600 text-white font-bold' : 'bg-[#2b2e38] text-neutral-300 hover:bg-[#393d4a]'}`}
+                >
+                  {deg}º
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
