@@ -57,10 +57,10 @@ export const MarginModal: React.FC<MarginModalProps> = ({
 
     // 4 border lines
     entities.push(
-      { type: 'line', id: t + 1, x1, y1, x2, y2: y1, style: borderStyle },
-      { type: 'line', id: t + 2, x1: x2, y1, x2, y2, style: borderStyle },
-      { type: 'line', id: t + 3, x1: x2, y1: y2, x2: x1, y2, style: borderStyle },
-      { type: 'line', id: t + 4, x1, y1: y2, x2: x1, y2: y1, style: borderStyle }
+      { type: 'line', id: t + 1, x1, y1, x2, y2: y1, layer: 'solucion', style: borderStyle },
+      { type: 'line', id: t + 2, x1: x2, y1, x2, y2, layer: 'solucion', style: borderStyle },
+      { type: 'line', id: t + 3, x1: x2, y1: y2, x2: x1, y2, layer: 'solucion', style: borderStyle },
+      { type: 'line', id: t + 4, x1, y1: y2, x2: x1, y2: y1, layer: 'solucion', style: borderStyle }
     );
 
     // If Cajetín requested (standard technical title box in bottom right corner)
@@ -78,6 +78,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         y1: cY,
         x2,
         y2: cY,
+        layer: 'solucion',
         style: borderStyle,
       });
       // Left boundary of cajetín
@@ -88,6 +89,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         y1: cY,
         x2: cX,
         y2,
+        layer: 'solucion',
         style: borderStyle,
       });
 
@@ -99,6 +101,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         y1: cY + 12,
         x2,
         y2: cY + 12,
+        layer: 'solucion',
         style: thinStyle,
       });
       entities.push({
@@ -108,6 +111,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         y1: cY + 22,
         x2,
         y2: cY + 22,
+        layer: 'solucion',
         style: thinStyle,
       });
       entities.push({
@@ -117,6 +121,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         y1: cY + 12,
         x2: cX + 80,
         y2,
+        layer: 'solucion',
         style: thinStyle,
       });
 
@@ -130,6 +135,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         text: `TÍTULO: ${title.toUpperCase()}`,
         angle: 0,
         fontSize: 4,
+        layer: 'solucion',
         style: thinStyle,
       });
       entities.push({
@@ -140,6 +146,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         text: `ALUMNO/A: ${author}`,
         angle: 0,
         fontSize: 3.5,
+        layer: 'solucion',
         style: thinStyle,
       });
       entities.push({
@@ -150,6 +157,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         text: `CURSO: ${course}`,
         angle: 0,
         fontSize: 3.2,
+        layer: 'solucion',
         style: thinStyle,
       });
       entities.push({
@@ -160,6 +168,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         text: `FECHA: ${dateStr}`,
         angle: 0,
         fontSize: 3.2,
+        layer: 'solucion',
         style: thinStyle,
       });
       entities.push({
@@ -170,6 +179,7 @@ export const MarginModal: React.FC<MarginModalProps> = ({
         text: `ESCALA: ${scale}`,
         angle: 0,
         fontSize: 3.5,
+        layer: 'solucion',
         style: thinStyle,
       });
     }

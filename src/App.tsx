@@ -3451,7 +3451,7 @@ export default function App() {
         onClose={() => setIsMarginsOpen(false)}
         sheetSize={currentPage.sheetSize}
         currentStyle={currentStyle}
-        onApplyMargins={(marginEntities) => pushState([...entities, ...marginEntities])}
+        onApplyMargins={(marginEntities) => pushState([...allEntities, ...marginEntities])}
       />
 
       <CropModal

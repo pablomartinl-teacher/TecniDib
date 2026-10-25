@@ -135,8 +135,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     const isSelected = selectedEntities.some((e) => e.id === ent.id);
     const isRef = referenceLine?.id === ent.id;
     const isLatestInPlayer = isPlayerActive && index === entities.length - 1;
-    const animClass = isLatestInPlayer ? 'animate-cad-draw' : '';
-    const handFilter = isHandDrawn ? 'url(#hand-drawn-sketch)' : undefined;
+    const animClass = isLatestInPlayer && isHandDrawn ? 'animate-cad-draw' : '';
 
     const baseStyle = ent.style || {
       width: 0.5,
@@ -185,7 +184,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             markerEnd={markerEnd}
             strokeLinecap="round"
             className={animClass}
-            filter={handFilter}
           />
         );
 
@@ -260,7 +258,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               strokeWidth={sw}
               strokeDasharray={strokeDasharray}
               className={animClass}
-              filter={handFilter}
             />
             {/* Standard center mark cross */}
             <line
@@ -293,7 +290,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             strokeWidth={sw}
             strokeDasharray={strokeDasharray}
             className={animClass}
-            filter={handFilter}
           />
         );
       }
@@ -318,7 +314,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               strokeWidth={sw}
               strokeDasharray={strokeDasharray}
               className={animClass}
-              filter={handFilter}
             />
             {/* If selected, render vertex handles so user can clearly see the corners */}
             {isSelected &&
@@ -351,7 +346,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               strokeWidth={sw}
               strokeDasharray={strokeDasharray}
               className={animClass}
-              filter={handFilter}
             />
             {isSelected &&
               ent.points.map((p, idx) => (
@@ -383,7 +377,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             strokeWidth={sw}
             strokeDasharray={strokeDasharray}
             className={animClass}
-            filter={handFilter}
           />
         );
 
@@ -747,7 +740,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
               stroke={strokeColor}
               strokeWidth={sw}
               className={animClass}
-              filter={handFilter}
             />
           </g>
         );
@@ -842,6 +834,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
           ref={svgRef}
           id="dibujo-svg"
           viewBox={`0 0 ${sheetSize.w} ${sheetSize.h}`}
+          shapeRendering="geometricPrecision"
           style={{
             width: `${sheetSize.w * scale}mm`,
             height: `${sheetSize.h * scale}mm`,
@@ -858,12 +851,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         >
           {/* Technical Drawing Markers & Patterns */}
           <defs>
-            {/* Hand-drawn organic sketch simulation filter */}
-            <filter id="hand-drawn-sketch" x="-10%" y="-10%" width="120%" height="120%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
-              <feDisplacementMap in="SourceGraphic" in2="noise" scale="0.6" xChannelSelector="R" yChannelSelector="G" />
-            </filter>
-
             <style>
               {`
                 @keyframes cadHandDraw {
