@@ -79,6 +79,11 @@ import { PageManagerModal } from './components/PageManagerModal.tsx';
 import { ContextMenu } from './components/ContextMenu.tsx';
 import { ShortcutsModal } from './components/ShortcutsModal.tsx';
 import { DiedricoModal } from './components/DiedricoModal.tsx';
+import { detectMobileDevice } from './cad/mobileUtils.ts';
+import { MobileTopBar } from './components/MobileTopBar.tsx';
+import { MobileBottomBar } from './components/MobileBottomBar.tsx';
+import { MobileControlBar } from './components/MobileControlBar.tsx';
+import { MobileMenuDrawer } from './components/MobileMenuDrawer.tsx';
 
 export default function App() {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -191,6 +196,90 @@ export default function App() {
   const [isDiedricoModalOpen, setIsDiedricoModalOpen] = useState<boolean>(false);
   const [showCompassArcs, setShowCompassArcs] = useState<boolean>(true);
   const [customPrompt, setCustomPrompt] = useState<string>('');
+
+  // Mobile Mode & Touch Screen optimization
+  const [isMobileMode, setIsMobileMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('vektorcad_mobile_mode_active');
+    if (saved !== null) return saved === 'true';
+    if (typeof window !== 'undefined') {
+      return detectMobileDevice(
+        window.innerWidth,
+        'ontouchstart' in window,
+        window.matchMedia?.('(pointer: coarse)').matches || false
+      );
+    }
+    return false;
+  });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const userOverride = localStorage.getItem('vektorcad_mobile_mode_override');
+      if (userOverride === null && typeof window !== 'undefined') {
+        const auto = detectMobileDevice(
+          window.innerWidth,
+          'ontouchstart' in window,
+          window.matchMedia?.('(pointer: coarse)').matches || false
+        );
+        setIsMobileMode(auto);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleToggleMobileMode = () => {
+    setIsMobileMode((prev) => {
+      const next = !prev;
+      localStorage.setItem('vektorcad_mobile_mode_active', String(next));
+      localStorage.setItem('vektorcad_mobile_mode_override', 'true');
+      setSaveStatus(next ? '📱 Modo móvil activado' : '🖥️ Modo escritorio activado');
+      setTimeout(() => setSaveStatus(''), 2000);
+      return next;
+    });
+  };
+
+  const handleToggleBgImageLock = () => {
+    setProject((prev) => {
+      const updatedPages = [...prev.pages];
+      const cur = updatedPages[currentPageIndex];
+      if (!cur) return prev;
+      const nextLocked = !cur.bgImageLocked;
+      updatedPages[currentPageIndex] = {
+        ...cur,
+        bgImageLocked: nextLocked,
+      };
+      setSaveStatus(nextLocked ? '🔒 PDF Base bloqueado' : '🔓 PDF Base desbloqueado');
+      setTimeout(() => setSaveStatus(''), 2000);
+      return { ...prev, pages: updatedPages };
+    });
+  };
+
+  const handleToggleEntityLock = (id: number) => {
+    setProject((prev) => {
+      const updatedPages = [...prev.pages];
+      const cur = updatedPages[currentPageIndex];
+      if (!cur) return prev;
+      let targetLocked = false;
+      const nextData = cur.data.map((e) => {
+        if (e.id === id) {
+          targetLocked = !e.locked;
+          return { ...e, locked: targetLocked };
+        }
+        return e;
+      });
+      updatedPages[currentPageIndex] = {
+        ...cur,
+        data: nextData,
+      };
+      setSaveStatus(targetLocked ? '🔒 Elemento bloqueado' : '🔓 Elemento desbloqueado');
+      setTimeout(() => setSaveStatus(''), 2000);
+      return { ...prev, pages: updatedPages };
+    });
+    setSelectedEntities((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, locked: !e.locked } : e))
+    );
+  };
 
   // Current page accessor
   const currentPage: PageDocument = project.pages[currentPageIndex] || project.pages[0];
@@ -1246,6 +1335,11 @@ export default function App() {
       const eid = Number(entityIdAttr);
       const targetEnt = entities.find((ent) => ent.id === eid);
       if (targetEnt && (targetEnt.type === 'text' || targetEnt.type === 'image')) {
+        if (targetEnt.locked) {
+          setSaveStatus('🔒 Elemento bloqueado. Desbloquéalo con clic derecho para transformarlo.');
+          setTimeout(() => setSaveStatus(''), 2500);
+          return;
+        }
         const isImg = targetEnt.type === 'image';
         const origW = isImg ? targetEnt.width : (targetEnt.w || 60);
         const origH = isImg ? targetEnt.height : (targetEnt.h || 25);
@@ -2250,6 +2344,7 @@ export default function App() {
 
       // Mutate current in-memory positions
       selectedEntities.forEach((ent) => {
+        if (ent.locked) return;
         if (ent.type === 'line' || ent.type === 'measure') {
           ent.x1 += dx;
           ent.y1 += dy;
@@ -3062,133 +3157,210 @@ export default function App() {
     setTimeout(() => setSaveStatus(''), 2500);
   };
 
+  const handleOpenProjectFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,.vektor';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const loaded = parseProjectFile(evt.target?.result as string);
+          setShowPlayer(false);
+          setPlayerStep(0);
+          setSelectedEntities([]);
+          setReferenceLine(null);
+          setCurvePoints([]);
+          setTransformState(null);
+          setKeyboardInput('');
+          setProject(loaded);
+          if (loaded.layers && Array.isArray(loaded.layers) && loaded.layers.length > 0) {
+            setLayers(loaded.layers.map((l) => ({ ...l, visible: true })));
+          }
+          setSaveStatus(`📂 Proyecto "${loaded.projectName}" cargado`);
+          setTimeout(() => setSaveStatus(''), 2500);
+        } catch (err) {
+          console.error(err);
+          setSaveStatus('❌ Error al cargar archivo');
+          setTimeout(() => setSaveStatus(''), 3000);
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  const handleOpenPdfBaseDialog = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf,image/*';
+    input.onchange = (e) => {
+      handleImportPDFBase(e as unknown as React.ChangeEvent<HTMLInputElement>);
+    };
+    input.click();
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#121316] text-neutral-200 font-sans">
-      {/* 1. Header Navigation Bar */}
+      {/* 1. Header Navigation Bar (Adaptive Mobile vs Desktop) */}
       {!isFocusMode && (
-        <TopBar
-        sheetSize={currentPage.sheetSize}
-        onChangeSheetSize={(newSize) => {
-          setProject((prev) => {
-            const updatedPages = [...prev.pages];
-            updatedPages[currentPageIndex] = {
-              ...updatedPages[currentPageIndex],
-              sheetSize: newSize,
-            };
-            return { ...prev, pages: updatedPages };
-          });
-        }}
-        currentPage={currentPageIndex}
-        totalPages={project.pages.length}
-        onPrevPage={() => {
-          if (currentPageIndex > 0) {
-            cancelAction();
-            setCurrentPageIndex(currentPageIndex - 1);
-          }
-        }}
-        onNextPage={() => {
-          if (currentPageIndex < project.pages.length - 1) {
-            cancelAction();
-            setCurrentPageIndex(currentPageIndex + 1);
-          }
-        }}
-        onAddPage={handleAddPage}
-        onMovePage={handleMovePage}
-        onDeletePage={handleDeletePage}
-        onOpenPageManager={() => setIsPageManagerOpen(true)}
-        zoomLevel={zoomLevel}
-        onZoomChange={(delta) => setZoomLevel((z) => Math.max(20, Math.min(600, z + delta)))}
-        onResetZoom={() => setZoomLevel(95)}
-        coords={coords}
-        onUndo={undo}
-        onRedo={redo}
-        canUndo={currentPage.history.length > 0}
-        canRedo={currentPage.redoHistory.length > 0}
-        onOpenMarginsModal={() => setIsMarginsOpen(true)}
-        onOpenCropModal={handleOpenCropperFile}
-        onImportPDFBase={handleImportPDFBase}
-        onSaveToFile={handleSaveToFile}
-        onLoadFromFile={(e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            try {
-              const loaded = parseProjectFile(evt.target?.result as string);
-              setShowPlayer(false);
-              setPlayerStep(0);
-              setSelectedEntities([]);
-              setReferenceLine(null);
-              setCurvePoints([]);
-              setTransformState(null);
-              setKeyboardInput('');
-              setProject(loaded);
-              if (loaded.layers && Array.isArray(loaded.layers) && loaded.layers.length > 0) {
-                // Ensure all layers are visible so no entities are hidden
-                setLayers(loaded.layers.map((l) => ({ ...l, visible: true })));
+        isMobileMode ? (
+          <MobileTopBar
+            sheetSize={currentPage.sheetSize}
+            currentPage={currentPageIndex + 1}
+            totalPages={project.pages.length}
+            onPrevPage={() => {
+              if (currentPageIndex > 0) {
+                cancelAction();
+                setCurrentPageIndex(currentPageIndex - 1);
               }
-              const pageIdx =
-                typeof loaded.currentPageIndex === 'number' && loaded.currentPageIndex < loaded.pages.length
-                  ? loaded.currentPageIndex
-                  : 0;
-              setCurrentPageIndex(pageIdx);
-              cancelAction();
-              const entCount = loaded.pages[pageIdx]?.data?.length || 0;
-              setSaveStatus(`📂 Archivo "${file.name}" cargado (${entCount} elementos)`);
-              setTimeout(() => setSaveStatus(''), 2500);
-            } catch (err) {
-              alert('Error al leer el archivo de proyecto JSON.');
-            }
-          };
-          reader.readAsText(file);
-          e.target.value = '';
-        }}
-        onExportPDF={handleExportPDF}
-        onExportSVG={handleExportSVG}
-        onExportDXF={handleExportDXF}
-        onNewCanvas={() => {
-          if (confirm('¿Crear nuevo proyecto en blanco?')) {
-            const fresh = createDefaultProject();
-            setProject(fresh);
-            setCurrentPageIndex(0);
-            cancelAction();
-          }
-        }}
-        showInstruments={showInstruments}
-        onToggleInstruments={() => setShowInstruments((prev) => !prev)}
-        showInspector={showInspector}
-        onToggleInspector={() => setShowInspector((prev) => !prev)}
-        showPlayer={showPlayer}
-        onTogglePlayer={() => {
-          setShowPlayer((prev) => {
-            if (!prev) setPlayerStep(allEntities.length);
-            return !prev;
-          });
-        }}
-        onOpenStudyModal={() => setIsStudyOpen(true)}
-        saveStatus={saveStatus}
-        onPurge={handlePurge}
-        onOpenShortcuts={() => setIsShortcutsOpen(true)}
-        isFocusMode={isFocusMode}
-        onToggleFocusMode={() => setIsFocusMode((p) => !p)}
-        hasBgImage={Boolean(currentPage.bgImage)}
-        showBgImage={showBgImage}
-        onToggleBgImage={() => setShowBgImage((prev) => !prev)}
-        onRemoveBgImage={() => {
-          if (confirm('¿Eliminar definitivamente el PDF/imagen base de esta lámina?')) {
-            setProject((prev) => {
-              const updatedPages = [...prev.pages];
-              updatedPages[currentPageIndex] = {
-                ...updatedPages[currentPageIndex],
-                bgImage: null,
+            }}
+            onNextPage={() => {
+              if (currentPageIndex < project.pages.length - 1) {
+                cancelAction();
+                setCurrentPageIndex(currentPageIndex + 1);
+              }
+            }}
+            onAddPage={handleAddPage}
+            canUndo={currentPage.history.length > 0}
+            canRedo={currentPage.redoHistory.length > 0}
+            onUndo={undo}
+            onRedo={redo}
+            isMobileMode={isMobileMode}
+            onToggleMobileMode={handleToggleMobileMode}
+            onOpenMenu={() => setIsMobileMenuOpen(true)}
+            saveStatus={saveStatus}
+          />
+        ) : (
+          <TopBar
+            sheetSize={currentPage.sheetSize}
+            onChangeSheetSize={(newSize) => {
+              setProject((prev) => {
+                const updatedPages = [...prev.pages];
+                updatedPages[currentPageIndex] = {
+                  ...updatedPages[currentPageIndex],
+                  sheetSize: newSize,
+                };
+                return { ...prev, pages: updatedPages };
+              });
+            }}
+            currentPage={currentPageIndex}
+            totalPages={project.pages.length}
+            onPrevPage={() => {
+              if (currentPageIndex > 0) {
+                cancelAction();
+                setCurrentPageIndex(currentPageIndex - 1);
+              }
+            }}
+            onNextPage={() => {
+              if (currentPageIndex < project.pages.length - 1) {
+                cancelAction();
+                setCurrentPageIndex(currentPageIndex + 1);
+              }
+            }}
+            onAddPage={handleAddPage}
+            onMovePage={handleMovePage}
+            onDeletePage={handleDeletePage}
+            onOpenPageManager={() => setIsPageManagerOpen(true)}
+            zoomLevel={zoomLevel}
+            onZoomChange={(delta) => setZoomLevel((z) => Math.max(20, Math.min(600, z + delta)))}
+            onResetZoom={() => setZoomLevel(95)}
+            coords={coords}
+            onUndo={undo}
+            onRedo={redo}
+            canUndo={currentPage.history.length > 0}
+            canRedo={currentPage.redoHistory.length > 0}
+            onOpenMarginsModal={() => setIsMarginsOpen(true)}
+            onOpenCropModal={handleOpenCropperFile}
+            onImportPDFBase={handleImportPDFBase}
+            onSaveToFile={handleSaveToFile}
+            onLoadFromFile={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = (evt) => {
+                try {
+                  const loaded = parseProjectFile(evt.target?.result as string);
+                  setShowPlayer(false);
+                  setPlayerStep(0);
+                  setSelectedEntities([]);
+                  setReferenceLine(null);
+                  setCurvePoints([]);
+                  setTransformState(null);
+                  setKeyboardInput('');
+                  setProject(loaded);
+                  if (loaded.layers && Array.isArray(loaded.layers) && loaded.layers.length > 0) {
+                    setLayers(loaded.layers.map((l) => ({ ...l, visible: true })));
+                  }
+                  const pageIdx =
+                    typeof loaded.currentPageIndex === 'number' && loaded.currentPageIndex < loaded.pages.length
+                      ? loaded.currentPageIndex
+                      : 0;
+                  setCurrentPageIndex(pageIdx);
+                  cancelAction();
+                  const entCount = loaded.pages[pageIdx]?.data?.length || 0;
+                  setSaveStatus(`📂 Archivo "${file.name}" cargado (${entCount} elementos)`);
+                  setTimeout(() => setSaveStatus(''), 2500);
+                } catch (err) {
+                  alert('Error al leer el archivo de proyecto JSON.');
+                }
               };
-              return { ...prev, pages: updatedPages };
-            });
-            setSaveStatus('🗑️ PDF base eliminado');
-            setTimeout(() => setSaveStatus(''), 2000);
-          }
-        }}
-      />
+              reader.readAsText(file);
+              e.target.value = '';
+            }}
+            onExportPDF={handleExportPDF}
+            onExportSVG={handleExportSVG}
+            onExportDXF={handleExportDXF}
+            onNewCanvas={() => {
+              if (confirm('¿Crear nuevo proyecto en blanco?')) {
+                const fresh = createDefaultProject();
+                setProject(fresh);
+                setCurrentPageIndex(0);
+                cancelAction();
+              }
+            }}
+            showInstruments={showInstruments}
+            onToggleInstruments={() => setShowInstruments((prev) => !prev)}
+            showInspector={showInspector}
+            onToggleInspector={() => setShowInspector((prev) => !prev)}
+            showPlayer={showPlayer}
+            onTogglePlayer={() => {
+              setShowPlayer((prev) => {
+                if (!prev) setPlayerStep(allEntities.length);
+                return !prev;
+              });
+            }}
+            onOpenStudyModal={() => setIsStudyOpen(true)}
+            saveStatus={saveStatus}
+            onPurge={handlePurge}
+            onOpenShortcuts={() => setIsShortcutsOpen(true)}
+            isFocusMode={isFocusMode}
+            onToggleFocusMode={() => setIsFocusMode((p) => !p)}
+            hasBgImage={Boolean(currentPage.bgImage)}
+            bgImageLocked={Boolean(currentPage.bgImageLocked)}
+            onToggleBgImageLock={handleToggleBgImageLock}
+            showBgImage={showBgImage}
+            onToggleBgImage={() => setShowBgImage((prev) => !prev)}
+            onRemoveBgImage={() => {
+              if (confirm('¿Eliminar definitivamente el PDF/imagen base de esta lámina?')) {
+                setProject((prev) => {
+                  const updatedPages = [...prev.pages];
+                  updatedPages[currentPageIndex] = {
+                    ...updatedPages[currentPageIndex],
+                    bgImage: null,
+                  };
+                  return { ...prev, pages: updatedPages };
+                });
+                setSaveStatus('🗑️ PDF base eliminado');
+                setTimeout(() => setSaveStatus(''), 2000);
+              }
+            }}
+            isMobileMode={isMobileMode}
+            onToggleMobileMode={handleToggleMobileMode}
+          />
+        )
       )}
 
       {/* Floating Exit Button for Focus Mode */}
@@ -3207,75 +3379,77 @@ export default function App() {
         </div>
       )}
 
-      {/* 2. Precision & Line Property Bar */}
-      {!isFocusMode && (
-      <PropertyBar
-        currentTool={currentTool}
-        style={selectedEntities.length === 1 ? { ...currentStyle, ...selectedEntities[0].style } : currentStyle}
-        onChangeStyle={(newStyle) => {
-          setCurrentStyle((prev) => ({ ...prev, ...newStyle }));
-          if (selectedEntities.length > 0) {
-            const selIds = new Set(selectedEntities.map((s) => s.id));
-            const updated = allEntities.map((ent) => {
-              if (selIds.has(ent.id)) {
-                return {
-                  ...ent,
+      {/* 2. Precision & Line Property Bar (Desktop Only, Mobile uses floating controls) */}
+      {!isFocusMode && !isMobileMode && (
+        <PropertyBar
+          currentTool={currentTool}
+          style={selectedEntities.length === 1 ? { ...currentStyle, ...selectedEntities[0].style } : currentStyle}
+          onChangeStyle={(newStyle) => {
+            setCurrentStyle((prev) => ({ ...prev, ...newStyle }));
+            if (selectedEntities.length > 0) {
+              const selIds = new Set(selectedEntities.map((s) => s.id));
+              const updated = allEntities.map((ent) => {
+                if (selIds.has(ent.id)) {
+                  return {
+                    ...ent,
+                    style: {
+                      ...ent.style,
+                      ...newStyle,
+                    },
+                  };
+                }
+                return ent;
+              });
+              pushState(updated);
+              setSelectedEntities((prev) =>
+                prev.map((s) => ({
+                  ...s,
                   style: {
-                    ...ent.style,
+                    ...s.style,
                     ...newStyle,
                   },
-                };
-              }
-              return ent;
-            });
-            pushState(updated);
-            setSelectedEntities((prev) =>
-              prev.map((s) => ({
-                ...s,
-                style: {
-                  ...s.style,
-                  ...newStyle,
-                },
-              }))
-            );
-          }
-        }}
-        selectedCount={selectedEntities.length}
-        snapEnabled={snapEnabled}
-        onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-        isCtrlHeld={isCtrlHeld}
-        gridSnapEnabled={gridSnapEnabled}
-        onToggleGridSnap={() => setGridSnapEnabled((prev) => !prev)}
-        gridPitch={gridPitch}
-        onChangeGridPitch={setGridPitch}
-        gridMode={gridMode}
-        onChangeGridMode={setGridMode}
-        isoplane={isoplane}
-        onChangeIsoplane={setIsoplane}
-        orthoMode={orthoMode}
-        onToggleOrtho={() => setOrthoMode((prev) => !prev)}
-        polySides={polySides}
-        onChangePolySides={setPolySides}
-        symbolType={symbolType}
-        onChangeSymbolType={setSymbolType}
-        paperTheme={paperTheme}
-        onChangePaperTheme={setPaperTheme}
-      />
+                }))
+              );
+            }
+          }}
+          selectedCount={selectedEntities.length}
+          snapEnabled={snapEnabled}
+          onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+          isCtrlHeld={isCtrlHeld}
+          gridSnapEnabled={gridSnapEnabled}
+          onToggleGridSnap={() => setGridSnapEnabled((prev) => !prev)}
+          gridPitch={gridPitch}
+          onChangeGridPitch={setGridPitch}
+          gridMode={gridMode}
+          onChangeGridMode={setGridMode}
+          isoplane={isoplane}
+          onChangeIsoplane={setIsoplane}
+          orthoMode={orthoMode}
+          onToggleOrtho={() => setOrthoMode((prev) => !prev)}
+          polySides={polySides}
+          onChangePolySides={setPolySides}
+          symbolType={symbolType}
+          onChangeSymbolType={setSymbolType}
+          paperTheme={paperTheme}
+          onChangePaperTheme={setPaperTheme}
+        />
       )}
 
       {/* 3. Main Workspace: ToolBar + Canvas + Overlays + Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
-        <ToolBar
-          activeTool={currentTool}
-          onSelectTool={(tool) => {
-            cancelAction();
-            if (tool === 'diedrico_template') {
-              setIsDiedricoModalOpen(true);
-              return;
-            }
-            setCurrentTool(tool);
-          }}
-        />
+        {!isFocusMode && !isMobileMode && (
+          <ToolBar
+            activeTool={currentTool}
+            onSelectTool={(tool) => {
+              cancelAction();
+              if (tool === 'diedrico_template') {
+                setIsDiedricoModalOpen(true);
+                return;
+              }
+              setCurrentTool(tool);
+            }}
+          />
+        )}
 
         <div className="flex-1 relative flex overflow-hidden">
           <CadCanvas
@@ -3295,9 +3469,14 @@ export default function App() {
             activeAlignY={activeAlignY}
             ghostHtml={ghostHtml}
             bgImage={showBgImage ? currentPage.bgImage : null}
+            bgImageLocked={Boolean(currentPage.bgImageLocked)}
+            onToggleBgImageLock={handleToggleBgImageLock}
+            onToggleEntityLock={handleToggleEntityLock}
+            onZoomChange={(delta) => setZoomLevel((z) => Math.max(20, Math.min(600, z + delta)))}
+            isMobileMode={isMobileMode}
             hiddenLayers={new Set(layers.filter((l) => !l.visible).map((l) => l.id))}
             cursorPos={coords}
-            showRulers={true}
+            showRulers={!isMobileMode}
             keyboardInput={keyboardInput}
             p1={p1}
             currentTool={currentTool}
@@ -3312,6 +3491,52 @@ export default function App() {
             isPanning={isPanning}
             cursorStyle={getCursor()}
           />
+
+          {/* Floating Mobile Precision & Quick Action Bar */}
+          {isMobileMode && !isFocusMode && (
+            <MobileControlBar
+              snapEnabled={snapEnabled}
+              onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+              orthoMode={orthoMode}
+              onToggleOrtho={() => setOrthoMode((prev) => !prev)}
+              gridSnapEnabled={gridSnapEnabled}
+              onToggleGridSnap={() => setGridSnapEnabled((prev) => !prev)}
+              onResetZoom={() => setZoomLevel(95)}
+              zoomLevel={zoomLevel}
+              hasBgImage={Boolean(currentPage.bgImage)}
+              bgImageLocked={Boolean(currentPage.bgImageLocked)}
+              onToggleBgImageLock={handleToggleBgImageLock}
+              currentStyle={currentStyle}
+              onChangeStyle={(newStyle) => {
+                setCurrentStyle((prev) => ({ ...prev, ...newStyle }));
+                if (selectedEntities.length > 0) {
+                  const selIds = new Set(selectedEntities.map((s) => s.id));
+                  const updated = allEntities.map((ent) => {
+                    if (selIds.has(ent.id)) {
+                      return {
+                        ...ent,
+                        style: {
+                          ...ent.style,
+                          ...newStyle,
+                        },
+                      };
+                    }
+                    return ent;
+                  });
+                  pushState(updated);
+                  setSelectedEntities((prev) =>
+                    prev.map((s) => ({
+                      ...s,
+                      style: {
+                        ...s.style,
+                        ...newStyle,
+                      },
+                    }))
+                  );
+                }
+              }}
+            />
+          )}
 
           <InstrumentOverlay
             sheetWidth={currentPage.sheetSize.w}
@@ -3419,98 +3644,113 @@ export default function App() {
         />
       </div>
 
-      {/* Quick CAD Command Bar Footer */}
-      <CommandBar
-        coords={coords}
-        promptText={
-          currentTool === 'line'
-            ? step === 0 ? 'Segmento: Haz clic para fijar el primer punto.' : 'Segmento: Haz clic para el extremo final (o teclea mm + Enter).'
-            : currentTool === 'measure'
-            ? step === 0 ? 'Cota ISO: Clic en el 1º punto.' : step === 1 ? 'Cota ISO: Clic en el 2º punto.' : 'Cota ISO: Clic en el lado de cota.'
-            : currentTool === 'mediatriz'
-            ? step === 0 ? 'Mediatriz: Clic en el 1º extremo (o selecciona un segmento).' : 'Mediatriz: Clic en el 2º extremo.'
-            : currentTool === 'bisectriz'
-            ? step === 0 ? 'Bisectriz: Clic en Punto A.' : step === 1 ? 'Bisectriz: Clic en Vértice V.' : 'Bisectriz: Clic en Punto B.'
-            : currentTool === 'tales'
-            ? step === 0 ? 'Tales: Clic en el inicio.' : 'Tales: Clic en el final del segmento.'
-            : currentTool === 'trim'
-            ? 'Recortar (Trim): Haz clic en el segmento que deseas cortar hasta su intersección.'
-            : currentTool === 'tape_measure'
-            ? step === 0 ? 'Medir: Clic en el 1º punto.' : 'Medir: Mueve o haz clic para ver distancia y ángulo.'
-            : currentTool === 'circle'
-            ? step === 0 ? 'Circunferencia: Clic para el centro.' : 'Circunferencia: Clic para el radio (o teclea radio + Enter).'
-            : currentTool === 'arc'
-            ? step === 0 ? 'Arco / Compás: Clic para el centro de pinchazo.' : step === 1 ? 'Arco: Clic para el radio inicial.' : 'Arco: Gira para definir el barrido angular.'
-            : currentTool === 'isocircle'
-            ? step === 0 ? `Isocírculo [${isoplane.toUpperCase()}]: Clic para el centro de la elipse isométrica.` : `Isocírculo [${isoplane.toUpperCase()}]: Mueve para radio o teclea mm + Enter (Pulsa F5 para cambiar de cara).`
-            : currentTool === 'isobox'
-            ? step === 0 ? 'Caja Isométrica: Clic en el vértice base origen.' : 'Caja Isométrica: Mueve para dimensionar o teclea arista mm + Enter.'
-            : currentTool === 'diedrico_template'
-            ? 'Lámina Vistas + 3D: Clic para estampar plantilla normalizada con Línea de Tierra (LT) y trípode axonométrico.'
-            : currentTool === 'curve'
-            ? 'Spline / Curva: Haz clic para añadir puntos de control. Doble clic o Enter para finalizar.'
-            : currentTool === 'fill'
-            ? 'Trama / Relleno: Haz clic para añadir vértices del contorno. Doble clic o clic en el inicio para cerrar y rellenar.'
-            : ''
-        }
-        onExecuteCommand={(cmdStr) => {
-          const raw = cmdStr.trim();
-          if (/^[0-9.,<xX\-\s]+$/.test(raw) && /[0-9]/.test(raw)) {
-            applyKeyboardMeasure(raw);
-            return;
+      {/* Mobile Bottom Dock or Desktop CAD Command Bar */}
+      {isMobileMode && !isFocusMode ? (
+        <MobileBottomBar
+          activeTool={currentTool}
+          onSelectTool={(tool) => {
+            cancelAction();
+            if (tool === 'diedrico_template') {
+              setIsDiedricoModalOpen(true);
+              return;
+            }
+            setCurrentTool(tool);
+          }}
+          onOpenCropModal={handleOpenCropperFile}
+        />
+      ) : !isFocusMode ? (
+        <CommandBar
+          coords={coords}
+          promptText={
+            currentTool === 'line'
+              ? step === 0 ? 'Segmento: Haz clic para fijar el primer punto.' : 'Segmento: Haz clic para el extremo final (o teclea mm + Enter).'
+              : currentTool === 'measure'
+              ? step === 0 ? 'Cota ISO: Clic en el 1º punto.' : step === 1 ? 'Cota ISO: Clic en el 2º punto.' : 'Cota ISO: Clic en el lado de cota.'
+              : currentTool === 'mediatriz'
+              ? step === 0 ? 'Mediatriz: Clic en el 1º extremo (o selecciona un segmento).' : 'Mediatriz: Clic en el 2º extremo.'
+              : currentTool === 'bisectriz'
+              ? step === 0 ? 'Bisectriz: Clic en Punto A.' : step === 1 ? 'Bisectriz: Clic en Vértice V.' : 'Bisectriz: Clic en Punto B.'
+              : currentTool === 'tales'
+              ? step === 0 ? 'Tales: Clic en el inicio.' : 'Tales: Clic en el final del segmento.'
+              : currentTool === 'trim'
+              ? 'Recortar (Trim): Haz clic en el segmento que deseas cortar hasta su intersección.'
+              : currentTool === 'tape_measure'
+              ? step === 0 ? 'Medir: Clic en el 1º punto.' : 'Medir: Mueve o haz clic para ver distancia y ángulo.'
+              : currentTool === 'circle'
+              ? step === 0 ? 'Circunferencia: Clic para el centro.' : 'Circunferencia: Clic para el radio (o teclea radio + Enter).'
+              : currentTool === 'arc'
+              ? step === 0 ? 'Arco / Compás: Clic para el centro de pinchazo.' : step === 1 ? 'Arco: Clic para el radio inicial.' : 'Arco: Gira para definir el barrido angular.'
+              : currentTool === 'isocircle'
+              ? step === 0 ? `Isocírculo [${isoplane.toUpperCase()}]: Clic para el centro de la elipse isométrica.` : `Isocírculo [${isoplane.toUpperCase()}]: Mueve para radio o teclea mm + Enter (Pulsa F5 para cambiar de cara).`
+              : currentTool === 'isobox'
+              ? step === 0 ? 'Caja Isométrica: Clic en el vértice base origen.' : 'Caja Isométrica: Mueve para dimensionar o teclea arista mm + Enter.'
+              : currentTool === 'diedrico_template'
+              ? 'Lámina Vistas + 3D: Clic para estampar plantilla normalizada con Línea de Tierra (LT) y trípode axonométrico.'
+              : currentTool === 'curve'
+              ? 'Spline / Curva: Haz clic para añadir puntos de control. Doble clic o Enter para finalizar.'
+              : currentTool === 'fill'
+              ? 'Trama / Relleno: Haz clic para añadir vértices del contorno. Doble clic o clic en el inicio para cerrar y rellenar.'
+              : ''
           }
-          const trimmed = raw.toUpperCase();
-          if (trimmed === 'L' || trimmed === 'LINEA' || trimmed === 'LINE') setCurrentTool('line');
-          else if (trimmed === 'C' || trimmed === 'CIRCULO' || trimmed === 'CIRCLE') setCurrentTool('circle');
-          else if (trimmed === 'S' || trimmed === 'SPLINE' || trimmed === 'CURVA') setCurrentTool('curve');
-          else if (trimmed === 'F' || trimmed === 'FILL' || trimmed === 'RELLENO') setCurrentTool('fill');
-          else if (trimmed === 'M' || trimmed === 'COTA' || trimmed === 'ACOTAR') setCurrentTool('measure');
-          else if (trimmed === 'MED' || trimmed === 'MEDIATRIZ') setCurrentTool('mediatriz');
-          else if (trimmed === 'BIS' || trimmed === 'BISECTRIZ') setCurrentTool('bisectriz');
-          else if (trimmed === 'TALES' || trimmed === 'DIVIDIR') setCurrentTool('tales');
-          else if (trimmed === 'TRIM' || trimmed === 'RECORTAR') setCurrentTool('trim');
-          else if (trimmed === 'DIST' || trimmed === 'MEDIR') setCurrentTool('tape_measure');
-          else if (trimmed === 'MIRROR' || trimmed === 'SIMETRIA') setCurrentTool('mirror');
-          else if (trimmed === 'V' || trimmed === 'SELECT' || trimmed === 'CURSOR') setCurrentTool('cursor');
-          else if (trimmed === 'I' || trimmed === 'ISOCIRCULO' || trimmed === 'ISOCIRCLE') setCurrentTool('isocircle');
-          else if (trimmed === 'J' || trimmed === 'CAJA' || trimmed === 'BOX') setCurrentTool('isobox');
-          else if (trimmed === 'D' || trimmed === 'DIEDRICO' || trimmed === 'VISTAS') setCurrentTool('diedrico_template');
-          else if (trimmed === 'PAGES' || trimmed === 'LAMINAS' || trimmed === 'PAGINAS') setIsPageManagerOpen(true);
-          else if (trimmed === 'SNAP' || trimmed === 'IMAN') {
-            setSnapEnabled((p) => !p);
-            setSaveStatus(snapEnabled ? '⚡ Imán Desactivado' : '🧲 Imán Activado');
-            setTimeout(() => setSaveStatus(''), 1500);
-          } else if (trimmed === 'ISO' || trimmed === 'ISOMETRICA') {
-            setGridMode('isometric');
-            setGridSnapEnabled(true);
-            setSaveStatus('🔺 Modo Rejilla Isométrica 30º-150º activado');
-            setTimeout(() => setSaveStatus(''), 2500);
-          } else if (trimmed === 'ORTO' || trimmed === 'ORTOGONAL') {
-            setGridMode('orthogonal');
-            setSaveStatus('📐 Modo Rejilla Ortogonal activado');
-            setTimeout(() => setSaveStatus(''), 2500);
-          } else if (trimmed === 'F5' || trimmed === 'ISOPLANO') {
-            setIsoplane((prev) => (prev === 'top' ? 'left' : prev === 'left' ? 'right' : 'top'));
-            setSaveStatus('🔄 Isoplano cambiado');
-            setTimeout(() => setSaveStatus(''), 1500);
-          } else if (trimmed === 'DXF') {
-            handleExportDXF();
-          } else if (trimmed === 'SAVE' || trimmed === 'GUARDAR') {
-            handleSaveToFile();
-          } else if (trimmed === 'CLEAR') {
-            if (confirm('¿Vaciar lámina?')) pushState([]);
-          } else if (trimmed === 'PURGE' || trimmed === 'PURGAR' || trimmed === 'LIMPIAR') {
-            handlePurge();
-          } else if (trimmed === 'HELP' || trimmed === 'AYUDA' || trimmed === '?') {
-            setIsShortcutsOpen(true);
-          } else if (trimmed === 'FULL' || trimmed === 'ENFOQUE' || trimmed === 'TAB') {
-            setIsFocusMode((p) => !p);
-          } else if (trimmed === 'DUP' || trimmed === 'DUPLICAR') {
-            duplicateSelectedEntities();
-          }
-          cancelAction();
-        }}
-      />
+          onExecuteCommand={(cmdStr) => {
+            const raw = cmdStr.trim();
+            if (/^[0-9.,<xX\-\s]+$/.test(raw) && /[0-9]/.test(raw)) {
+              applyKeyboardMeasure(raw);
+              return;
+            }
+            const trimmed = raw.toUpperCase();
+            if (trimmed === 'L' || trimmed === 'LINEA' || trimmed === 'LINE') setCurrentTool('line');
+            else if (trimmed === 'C' || trimmed === 'CIRCULO' || trimmed === 'CIRCLE') setCurrentTool('circle');
+            else if (trimmed === 'S' || trimmed === 'SPLINE' || trimmed === 'CURVA') setCurrentTool('curve');
+            else if (trimmed === 'F' || trimmed === 'FILL' || trimmed === 'RELLENO') setCurrentTool('fill');
+            else if (trimmed === 'M' || trimmed === 'COTA' || trimmed === 'ACOTAR') setCurrentTool('measure');
+            else if (trimmed === 'MED' || trimmed === 'MEDIATRIZ') setCurrentTool('mediatriz');
+            else if (trimmed === 'BIS' || trimmed === 'BISECTRIZ') setCurrentTool('bisectriz');
+            else if (trimmed === 'TALES' || trimmed === 'DIVIDIR') setCurrentTool('tales');
+            else if (trimmed === 'TRIM' || trimmed === 'RECORTAR') setCurrentTool('trim');
+            else if (trimmed === 'DIST' || trimmed === 'MEDIR') setCurrentTool('tape_measure');
+            else if (trimmed === 'MIRROR' || trimmed === 'SIMETRIA') setCurrentTool('mirror');
+            else if (trimmed === 'V' || trimmed === 'SELECT' || trimmed === 'CURSOR') setCurrentTool('cursor');
+            else if (trimmed === 'I' || trimmed === 'ISOCIRCULO' || trimmed === 'ISOCIRCLE') setCurrentTool('isocircle');
+            else if (trimmed === 'J' || trimmed === 'CAJA' || trimmed === 'BOX') setCurrentTool('isobox');
+            else if (trimmed === 'D' || trimmed === 'DIEDRICO' || trimmed === 'VISTAS') setCurrentTool('diedrico_template');
+            else if (trimmed === 'PAGES' || trimmed === 'LAMINAS' || trimmed === 'PAGINAS') setIsPageManagerOpen(true);
+            else if (trimmed === 'SNAP' || trimmed === 'IMAN') {
+              setSnapEnabled((p) => !p);
+              setSaveStatus(snapEnabled ? '⚡ Imán Desactivado' : '🧲 Imán Activado');
+              setTimeout(() => setSaveStatus(''), 1500);
+            } else if (trimmed === 'ISO' || trimmed === 'ISOMETRICA') {
+              setGridMode('isometric');
+              setGridSnapEnabled(true);
+              setSaveStatus('🔺 Modo Rejilla Isométrica 30º-150º activado');
+              setTimeout(() => setSaveStatus(''), 2500);
+            } else if (trimmed === 'ORTO' || trimmed === 'ORTOGONAL') {
+              setGridMode('orthogonal');
+              setSaveStatus('📐 Modo Rejilla Ortogonal activado');
+              setTimeout(() => setSaveStatus(''), 2500);
+            } else if (trimmed === 'F5' || trimmed === 'ISOPLANO') {
+              setIsoplane((prev) => (prev === 'top' ? 'left' : prev === 'left' ? 'right' : 'top'));
+              setSaveStatus('🔄 Isoplano cambiado');
+              setTimeout(() => setSaveStatus(''), 1500);
+            } else if (trimmed === 'DXF') {
+              handleExportDXF();
+            } else if (trimmed === 'SAVE' || trimmed === 'GUARDAR') {
+              handleSaveToFile();
+            } else if (trimmed === 'CLEAR') {
+              if (confirm('¿Vaciar lámina?')) pushState([]);
+            } else if (trimmed === 'PURGE' || trimmed === 'PURGAR' || trimmed === 'LIMPIAR') {
+              handlePurge();
+            } else if (trimmed === 'HELP' || trimmed === 'AYUDA' || trimmed === '?') {
+              setIsShortcutsOpen(true);
+            } else if (trimmed === 'FULL' || trimmed === 'ENFOQUE' || trimmed === 'TAB') {
+              setIsFocusMode((p) => !p);
+            } else if (trimmed === 'DUP' || trimmed === 'DUPLICAR') {
+              duplicateSelectedEntities();
+            }
+            cancelAction();
+          }}
+        />
+      ) : null}
 
       {/* 4. Modals */}
       <MarginModal
@@ -3621,8 +3861,67 @@ export default function App() {
           onResetZoom={() => setZoomLevel(95)}
           onOpenShortcuts={() => setIsShortcutsOpen(true)}
           onCancelAction={cancelAction}
+          hasBgImage={Boolean(currentPage.bgImage)}
+          bgImageLocked={Boolean(currentPage.bgImageLocked)}
+          onToggleBgImageLock={handleToggleBgImageLock}
+          selectedImage={(selectedEntities.find((e) => e.type === 'image') as ImageEntity) || null}
+          onToggleImageLock={() => {
+            const img = selectedEntities.find((e) => e.type === 'image');
+            if (img) handleToggleEntityLock(img.id);
+          }}
+          isMobileMode={isMobileMode}
         />
       )}
+
+      {/* Mobile Slide-Over Menu Drawer */}
+      <MobileMenuDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        onExportPDF={handleExportPDF}
+        onExportSVG={handleExportSVG}
+        onExportDXF={handleExportDXF}
+        onSaveToFile={handleSaveToFile}
+        onOpenFileInput={handleOpenProjectFile}
+        onOpenPdfBaseInput={handleOpenPdfBaseDialog}
+        onOpenCropModal={handleOpenCropperFile}
+        onOpenMarginsModal={() => setIsMarginsOpen(true)}
+        onOpenPageManager={() => setIsPageManagerOpen(true)}
+        onToggleInstruments={() => setShowInstruments((prev) => !prev)}
+        showInstruments={showInstruments}
+        onOpenStudyModal={() => setIsStudyOpen(true)}
+        onPurge={handlePurge}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onNewCanvas={() => {
+          if (confirm('¿Crear nuevo proyecto en blanco?')) {
+            const fresh = createDefaultProject();
+            setProject(fresh);
+            setCurrentPageIndex(0);
+            cancelAction();
+          }
+        }}
+        hasBgImage={Boolean(currentPage.bgImage)}
+        bgImageLocked={Boolean(currentPage.bgImageLocked)}
+        onToggleBgImageLock={handleToggleBgImageLock}
+        showBgImage={showBgImage}
+        onToggleBgImage={() => setShowBgImage((prev) => !prev)}
+        onRemoveBgImage={() => {
+          if (confirm('¿Eliminar definitivamente el PDF/imagen base de esta lámina?')) {
+            setProject((prev) => {
+              const updatedPages = [...prev.pages];
+              updatedPages[currentPageIndex] = {
+                ...updatedPages[currentPageIndex],
+                bgImage: null,
+              };
+              return { ...prev, pages: updatedPages };
+            });
+            setSaveStatus('🗑️ PDF base eliminado');
+            setTimeout(() => setSaveStatus(''), 2000);
+          }
+        }}
+        paperTheme={paperTheme}
+        onChangePaperTheme={setPaperTheme}
+        saveStatus={saveStatus}
+      />
 
       {/* Technical Keyboard Shortcuts Cheat Sheet Modal */}
       <ShortcutsModal

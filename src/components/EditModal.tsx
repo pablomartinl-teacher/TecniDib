@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CadEntity, DashStyle, SymbolType } from '../cad/types.ts';
-import { X, Check, Trash2, Sliders } from 'lucide-react';
+import { X, Check, Trash2, Sliders, Lock, Unlock } from 'lucide-react';
 
 interface EditModalProps {
   isOpen: boolean;
@@ -31,6 +31,7 @@ export const EditModal: React.FC<EditModalProps> = ({
   const [imageHeight, setImageHeight] = useState(50);
   const [imageRotation, setImageRotation] = useState(0);
   const [lockRatio, setLockRatio] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
   const [textAngle, setTextAngle] = useState(0);
   const [symbolType, setSymbolType] = useState<SymbolType>('perp');
 
@@ -40,6 +41,7 @@ export const EditModal: React.FC<EditModalProps> = ({
     setFillColor(entity.style?.fillColor || '#ffffff');
     setWidth(entity.style?.width || 0.5);
     setDash(entity.style?.dash || 'none');
+    setIsLocked(Boolean(entity.locked));
 
     if (entity.type === 'tag') {
       setTagText(entity.text);
@@ -80,6 +82,8 @@ export const EditModal: React.FC<EditModalProps> = ({
       updated.symbolType = symbolType;
     }
 
+    (updated as any).locked = isLocked;
+
     onUpdateEntity(updated);
     onClose();
   };
@@ -101,6 +105,36 @@ export const EditModal: React.FC<EditModalProps> = ({
         </div>
 
         <div className="p-4 flex flex-col gap-3 text-xs">
+          {/* Lock / Unlock status card */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#14151a] border border-[#2d313d]">
+            <div className="flex items-center gap-2">
+              {isLocked ? (
+                <Lock className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Unlock className="w-4 h-4 text-emerald-400" />
+              )}
+              <div>
+                <span className="font-semibold text-white block">
+                  {isLocked ? 'Elemento Bloqueado' : 'Elemento Libre'}
+                </span>
+                <span className="text-[10px] text-neutral-400">
+                  {isLocked ? 'No se moverá ni modificará al dibujar' : 'Permite mover, rotar y editar'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsLocked((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                isLocked
+                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50 hover:bg-amber-600/50'
+                  : 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-600/50'
+              }`}
+            >
+              {isLocked ? 'Desbloquear' : 'Bloquear'}
+            </button>
+          </div>
+
           {entity.type === 'tag' && (
             <div className="flex flex-col gap-1.5">
               <label className="text-neutral-300 font-medium">Texto de la Etiqueta:</label>

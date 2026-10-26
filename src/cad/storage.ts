@@ -152,6 +152,7 @@ export function createVektorProjectFile(project: CadProject): string {
       title: p.title,
       sheetSize: p.sheetSize || DEFAULT_SHEET,
       bgImage: p.bgImage || null,
+      bgImageLocked: Boolean(p.bgImageLocked),
       data: p.data || [],
     })),
   };
@@ -448,12 +449,13 @@ export function normalizeEntity(ent: any): CadEntity {
         href: ent.href || ent.src || '',
         rotation: typeof ent.rotation === 'number' ? ent.rotation : parseFloat(ent.rotation) || 0,
         opacity: typeof ent.opacity === 'number' ? ent.opacity : 1,
+        locked: Boolean(ent.locked),
         layer,
         style,
       };
 
     default:
-      return { ...ent, id, type, style, layer };
+      return { ...ent, id, type, style, layer, locked: Boolean(ent.locked) };
   }
 }
 
@@ -482,6 +484,7 @@ export function normalizeProject(proj: any): CadProject {
         history: Array.isArray(p.history) ? p.history : [],
         redoHistory: Array.isArray(p.redoHistory) ? p.redoHistory : [],
         bgImage: p.bgImage || null,
+        bgImageLocked: Boolean(p.bgImageLocked),
         sheetSize:
           p.sheetSize ||
           (root.size

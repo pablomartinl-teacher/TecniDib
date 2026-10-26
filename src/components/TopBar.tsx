@@ -27,6 +27,9 @@ import {
   Sparkles,
   HelpCircle,
   X,
+  Lock,
+  Unlock,
+  Smartphone,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
@@ -72,9 +75,13 @@ interface TopBarProps {
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
   hasBgImage?: boolean;
+  bgImageLocked?: boolean;
+  onToggleBgImageLock?: () => void;
   showBgImage?: boolean;
   onToggleBgImage?: () => void;
   onRemoveBgImage?: () => void;
+  isMobileMode?: boolean;
+  onToggleMobileMode?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -118,9 +125,13 @@ export const TopBar: React.FC<TopBarProps> = ({
   isFocusMode = false,
   onToggleFocusMode,
   hasBgImage = false,
+  bgImageLocked = false,
+  onToggleBgImageLock,
   showBgImage = true,
   onToggleBgImage,
   onRemoveBgImage,
+  isMobileMode = false,
+  onToggleMobileMode,
 }) => {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -272,11 +283,25 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* PDF Base */}
         {hasBgImage ? (
           <div className="flex items-center bg-[#13141a] rounded-lg border border-[#2d313d] p-0.5 gap-1 shrink-0">
+            {onToggleBgImageLock && (
+              <button
+                onClick={onToggleBgImageLock}
+                className={`px-2 py-1 rounded text-xs font-semibold transition flex items-center gap-1 ${
+                  bgImageLocked
+                    ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40 hover:bg-amber-600/40'
+                    : 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/40'
+                }`}
+                title={bgImageLocked ? 'PDF Base: Bloqueado (clic para desbloquear)' : 'PDF Base: Libre (clic para bloquear)'}
+              >
+                {bgImageLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                <span className="hidden xl:inline">{bgImageLocked ? 'Bloqueado' : 'Libre'}</span>
+              </button>
+            )}
             <button
               onClick={onToggleBgImage}
               className={`px-2 py-1 rounded text-xs font-medium transition flex items-center gap-1 ${
                 showBgImage
-                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
+                  ? 'bg-neutral-800 text-neutral-200 hover:text-white'
                   : 'text-neutral-400 hover:text-white hover:bg-[#252833]'
               }`}
               title={showBgImage ? 'Ocultar PDF base de la lámina' : 'Mostrar PDF base en la lámina'}
@@ -421,6 +446,22 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* PWA / App Install Button */}
         <PWAInstallButton />
+
+        {/* Mobile Mode Toggle Button */}
+        {onToggleMobileMode && (
+          <button
+            onClick={onToggleMobileMode}
+            className={`px-2 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 border ${
+              isMobileMode
+                ? 'bg-sky-600 text-white border-sky-400 shadow-sm'
+                : 'bg-[#22242c] text-neutral-300 hover:text-white border-[#333742]'
+            }`}
+            title="Activar o desactivar interfaz optimizada para dispositivos móviles y pantallas táctiles"
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{isMobileMode ? 'Móvil ON' : 'Móvil'}</span>
+          </button>
+        )}
 
         {/* Study button */}
         <button

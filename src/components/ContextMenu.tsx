@@ -17,8 +17,12 @@ import {
   FlipHorizontal,
   ChevronUp,
   ChevronDown,
+  Lock,
+  Unlock,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
-import { CadEntity } from '../cad/types.ts';
+import { CadEntity, ImageEntity } from '../cad/types.ts';
 
 export interface ContextMenuProps {
   x: number;
@@ -36,6 +40,12 @@ export interface ContextMenuProps {
   onResetZoom: () => void;
   onOpenShortcuts: () => void;
   onCancelAction: () => void;
+  hasBgImage?: boolean;
+  bgImageLocked?: boolean;
+  onToggleBgImageLock?: () => void;
+  selectedImage?: ImageEntity | null;
+  onToggleImageLock?: () => void;
+  isMobileMode?: boolean;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -54,6 +64,12 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onResetZoom,
   onOpenShortcuts,
   onCancelAction,
+  hasBgImage = false,
+  bgImageLocked = false,
+  onToggleBgImageLock,
+  selectedImage = null,
+  onToggleImageLock,
+  isMobileMode = false,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -82,25 +98,76 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   const hasPolygon = selectedEntities.some((e) => e.type === 'polygon');
   const hasMultipleLines =
     selectedEntities.filter((e) => e.type === 'line' || e.type === 'measure').length >= 2;
+  const imgTarget = selectedImage || (selectedEntities.find((e) => e.type === 'image') as ImageEntity | undefined);
 
   // Clamp menu inside screen viewport
-  const menuWidth = 240;
-  const menuHeight = hasSelection ? 300 : 180;
+  const menuWidth = isMobileMode ? 260 : 240;
+  const menuHeight = hasSelection ? 340 : 220;
   const safeX = Math.min(x, window.innerWidth - menuWidth - 12);
   const safeY = Math.min(y, window.innerHeight - menuHeight - 12);
+
+  const btnClass = isMobileMode
+    ? 'w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-800 hover:text-white transition-colors text-left text-sm min-h-[44px]'
+    : 'w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors text-left';
 
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-60 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-lg shadow-2xl py-1 text-xs text-slate-200 font-sans select-none animate-in fade-in zoom-in-95 duration-100"
+      className={`fixed z-50 ${isMobileMode ? 'w-64 text-sm' : 'w-60 text-xs'} bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl py-1 text-slate-200 font-sans select-none animate-in fade-in zoom-in-95 duration-100`}
       style={{ left: `${Math.max(8, safeX)}px`, top: `${Math.max(8, safeY)}px` }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Header status */}
       <div className="px-3 py-1.5 border-b border-slate-800 text-[10px] font-mono uppercase tracking-wider text-slate-400 flex items-center justify-between">
         <span>{hasSelection ? `${selectedEntities.length} elemento(s)` : 'Lienzo técnico'}</span>
-        <span className="text-slate-500">CAD Context</span>
+        <span className="text-slate-500">{isMobileMode ? 'Móvil CAD' : 'CAD Context'}</span>
       </div>
+
+      {/* Target Image Lock / Unlock prominent action */}
+      {imgTarget && onToggleImageLock && (
+        <div className="p-1 border-b border-slate-800/90 bg-slate-950/40">
+          <button
+            onClick={() => {
+              onToggleImageLock();
+              onClose();
+            }}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-all ${
+              imgTarget.locked
+                ? 'bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40'
+                : 'bg-amber-600/20 text-amber-300 hover:bg-amber-600/30 border border-amber-500/40'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {imgTarget.locked ? <Unlock size={15} className="text-emerald-400" /> : <Lock size={15} className="text-amber-400" />}
+              <span>{imgTarget.locked ? 'Desbloquear recorte/imagen' : 'Bloquear recorte/imagen'}</span>
+            </div>
+            <span className="text-[10px] font-mono text-slate-400">Clic der.</span>
+          </button>
+        </div>
+      )}
+
+      {/* PDF Base Lock / Unlock prominent action */}
+      {hasBgImage && onToggleBgImageLock && (
+        <div className="p-1 border-b border-slate-800/90 bg-slate-950/30">
+          <button
+            onClick={() => {
+              onToggleBgImageLock();
+              onClose();
+            }}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-all ${
+              bgImageLocked
+                ? 'bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40'
+                : 'bg-amber-600/20 text-amber-300 hover:bg-amber-600/30 border border-amber-500/40'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <FileText size={15} className="text-amber-400" />
+              <span>{bgImageLocked ? 'Desbloquear PDF Base' : 'Bloquear PDF Base'}</span>
+            </div>
+            {bgImageLocked ? <Unlock size={14} className="text-emerald-400" /> : <Lock size={14} className="text-amber-400" />}
+          </button>
+        </div>
+      )}
 
       {/* Selection specific actions */}
       {hasSelection && (

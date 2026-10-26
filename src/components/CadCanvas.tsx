@@ -15,6 +15,7 @@ import {
   GridMode,
   Isoplane,
   EllipseEntity,
+  ImageEntity,
 } from '../cad/types.ts';
 import {
   distance,
@@ -24,6 +25,7 @@ import {
   getEntityPolygonVertices,
   calculateIsoDimension,
 } from '../cad/geometry.ts';
+import { Lock, Unlock, FileText } from 'lucide-react';
 
 interface CadCanvasProps {
   svgRef: React.RefObject<SVGSVGElement | null>;
@@ -42,6 +44,11 @@ interface CadCanvasProps {
   activeAlignY: number | null;
   ghostHtml: string;
   bgImage: string | null;
+  bgImageLocked?: boolean;
+  onToggleBgImageLock?: () => void;
+  onToggleEntityLock?: (id: number) => void;
+  onZoomChange?: (delta: number) => void;
+  isMobileMode?: boolean;
   hiddenLayers?: Set<string>;
   cursorPos?: Point2D;
   showRulers?: boolean;
@@ -77,6 +84,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   activeAlignY,
   ghostHtml,
   bgImage,
+  bgImageLocked = false,
+  onToggleBgImageLock,
+  onToggleEntityLock,
+  onZoomChange,
+  isMobileMode = false,
   hiddenLayers,
   cursorPos = { x: 0, y: 0 },
   showRulers = true,
@@ -95,6 +107,108 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   cursorStyle,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Multi-touch gestures (two-finger pan & pinch zoom) for mobile touchscreens
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let initialDist = 0;
+    let lastMidX = 0;
+    let lastMidY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        touchStartPosRef.current = null;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        initialDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        lastMidX = (t1.clientX + t2.clientX) / 2;
+        lastMidY = (t1.clientY + t2.clientY) / 2;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const curDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2;
+        const midY = (t1.clientY + t2.clientY) / 2;
+
+        // Pan container
+        const dx = midX - lastMidX;
+        const dy = midY - lastMidY;
+        container.scrollLeft -= dx;
+        container.scrollTop -= dy;
+        lastMidX = midX;
+        lastMidY = midY;
+
+        // Pinch zoom
+        if (initialDist > 10 && onZoomChange) {
+          const delta = curDist - initialDist;
+          if (Math.abs(delta) > 12) {
+            onZoomChange(delta > 0 ? 5 : -5);
+            initialDist = curDist;
+          }
+        }
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [onZoomChange]);
+
+  const handlePointerDownInternal = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touchStartPosRef.current = { x: e.clientX, y: e.clientY };
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
+        if (touchStartPosRef.current) {
+          try {
+            navigator.vibrate?.(40);
+          } catch {}
+          onContextMenu(e as any);
+        }
+      }, 450);
+    }
+    onPointerDown(e);
+  };
+
+  const handlePointerMoveInternal = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (touchStartPosRef.current) {
+      const dx = Math.abs(e.clientX - touchStartPosRef.current.x);
+      const dy = Math.abs(e.clientY - touchStartPosRef.current.y);
+      if (dx > 8 || dy > 8) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        touchStartPosRef.current = null;
+      }
+    }
+    onPointerMove(e);
+  };
+
+  const handlePointerUpInternal = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+    onPointerUp(e);
+  };
 
   // Background colors per theme
   const getThemeBg = () => {
@@ -841,7 +955,64 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                 (e.currentTarget as any).style.display = 'none';
               }}
             />
-            {isSelected && (
+            {/* Padlock indicator icon on image when locked */}
+            {ent.locked && (
+              <g transform={`translate(${ent.x + 2.5}, ${ent.y + 2.5})`} pointerEvents="none">
+                <rect x={0} y={0} width={8} height={8} rx={2} fill="#1e293b" opacity={0.88} stroke="#f59e0b" strokeWidth={0.4} />
+                <path d="M 2.4 3.5 V 2.4 A 1.6 1.6 0 0 1 5.6 2.4 V 3.5 M 1.8 3.5 H 6.2 V 6.5 H 1.8 Z" fill="none" stroke="#f59e0b" strokeWidth={0.5} strokeLinecap="round" />
+              </g>
+            )}
+
+            {/* Selected state: Locked vs Unlocked */}
+            {isSelected && ent.locked && (
+              <g>
+                <rect
+                  x={ent.x}
+                  y={ent.y}
+                  width={imgW}
+                  height={imgH}
+                  fill="rgba(245, 158, 11, 0.05)"
+                  stroke="#f59e0b"
+                  strokeWidth={0.6}
+                  strokeDasharray="3,3"
+                  pointerEvents="none"
+                />
+                {/* Clickable pill to unlock */}
+                {onToggleEntityLock && (
+                  <g
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleEntityLock(ent.id);
+                    }}
+                  >
+                    <rect
+                      x={ent.x + imgW / 2 - 32}
+                      y={ent.y - 8}
+                      width={64}
+                      height={6.5}
+                      rx={2}
+                      fill="#1e293b"
+                      stroke="#f59e0b"
+                      strokeWidth={0.4}
+                    />
+                    <text
+                      x={ent.x + imgW / 2}
+                      y={ent.y - 3.8}
+                      fill="#fbbf24"
+                      fontSize={2.5}
+                      fontFamily="sans-serif"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                    >
+                      🔒 Bloqueada (clic para desbloquear)
+                    </text>
+                  </g>
+                )}
+              </g>
+            )}
+
+            {isSelected && !ent.locked && (
               <g>
                 {/* Bounding box dashed outline */}
                 <rect
@@ -1014,19 +1185,52 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
                   <title>Ajustar ancho derecho</title>
                 </rect>
 
-                {/* Live dimension & rotation badge */}
-                <text
-                  x={ent.x + imgW / 2}
-                  y={ent.y - 2.5}
-                  fill="#0284c7"
-                  fontSize={2.5}
-                  fontFamily="monospace"
-                  fontWeight="bold"
-                  textAnchor="middle"
-                  pointerEvents="none"
-                >
-                  {`${imgW.toFixed(1)} × ${imgH.toFixed(1)} mm${ent.rotation ? ` (${ent.rotation.toFixed(1)}º)` : ''}`}
-                </text>
+                {/* Live dimension & rotation badge and lock trigger */}
+                <g>
+                  <text
+                    x={ent.x + imgW / 2}
+                    y={ent.y - 2.5}
+                    fill="#0284c7"
+                    fontSize={2.5}
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    pointerEvents="none"
+                  >
+                    {`${imgW.toFixed(1)} × ${imgH.toFixed(1)} mm${ent.rotation ? ` (${ent.rotation.toFixed(1)}º)` : ''}`}
+                  </text>
+                  {onToggleEntityLock && (
+                    <g
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleEntityLock(ent.id);
+                      }}
+                    >
+                      <rect
+                        x={ent.x + imgW / 2 + 18}
+                        y={ent.y - 5.5}
+                        width={18}
+                        height={4.6}
+                        rx={1.2}
+                        fill="#1e293b"
+                        stroke="#0284c7"
+                        strokeWidth={0.35}
+                      />
+                      <text
+                        x={ent.x + imgW / 2 + 27}
+                        y={ent.y - 2.4}
+                        fill="#38bdf8"
+                        fontSize={2.2}
+                        fontFamily="sans-serif"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                      >
+                        🔒 Bloquear
+                      </text>
+                    </g>
+                  )}
+                </g>
               </g>
             )}
           </g>
@@ -1080,8 +1284,31 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
     <main
       ref={containerRef}
       id="canvas-container"
-      className="flex-1 bg-[#121316] overflow-auto relative flex items-center justify-center p-8 select-none"
+      className="flex-1 bg-[#121316] overflow-auto relative flex items-center justify-center p-4 sm:p-8 select-none touch-none"
     >
+      {/* Floating status badge for PDF Base with quick lock/unlock */}
+      {bgImage && typeof bgImage === 'string' && bgImage.trim() !== '' && bgImage !== 'null' && (
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-1.5 pointer-events-auto">
+          <button
+            onClick={onToggleBgImageLock}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md shadow-xl border transition ${
+              bgImageLocked
+                ? 'bg-slate-900/90 text-amber-300 border-amber-500/50 hover:bg-slate-800'
+                : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50 hover:bg-emerald-900 ring-2 ring-emerald-500/30 animate-pulse'
+            }`}
+            title={
+              bgImageLocked
+                ? 'PDF Base: Bloqueado (haz clic o clic derecho para desbloquear)'
+                : 'PDF Base: Desbloqueado (haz clic o clic derecho para bloquear)'
+            }
+          >
+            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            {bgImageLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span>{bgImageLocked ? 'PDF Base: Bloqueado' : 'PDF Base: Desbloqueado'}</span>
+          </button>
+        </div>
+      )}
+
       <div
         id="svg-wrapper"
         className="flex items-center justify-center min-w-full min-h-full"
@@ -1098,9 +1325,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
             cursor: cursorStyle,
             boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
           }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
+          onPointerDown={handlePointerDownInternal}
+          onPointerMove={handlePointerMoveInternal}
+          onPointerUp={handlePointerUpInternal}
           onContextMenu={onContextMenu}
           onDoubleClick={onDoubleClick}
           className="transition-shadow duration-150 touch-none flex-shrink-0"

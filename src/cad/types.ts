@@ -225,6 +225,7 @@ export interface PageDocument {
   history: string[];
   redoHistory: string[];
   bgImage: string | null;
+  bgImageLocked?: boolean;
   sheetSize: SheetSize;
   layers?: LayerConfig[];
 }
