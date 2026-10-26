@@ -281,6 +281,18 @@ export default function App() {
     );
   };
 
+  const handleZoomChange = useCallback((delta: number) => {
+    setZoomLevel((z) => Math.max(20, Math.min(600, Math.round(z + delta))));
+  }, []);
+
+  const handleSetZoom = useCallback((newZoom: number) => {
+    setZoomLevel(Math.max(20, Math.min(600, Math.round(newZoom))));
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoomLevel(95);
+  }, []);
+
   // Current page accessor
   const currentPage: PageDocument = project.pages[currentPageIndex] || project.pages[0];
   const allEntities: CadEntity[] = currentPage?.data || [];
@@ -3232,6 +3244,9 @@ export default function App() {
             onToggleMobileMode={handleToggleMobileMode}
             onOpenMenu={() => setIsMobileMenuOpen(true)}
             saveStatus={saveStatus}
+            zoomLevel={zoomLevel}
+            onZoomChange={handleZoomChange}
+            onResetZoom={handleResetZoom}
           />
         ) : (
           <TopBar
@@ -3265,8 +3280,8 @@ export default function App() {
             onDeletePage={handleDeletePage}
             onOpenPageManager={() => setIsPageManagerOpen(true)}
             zoomLevel={zoomLevel}
-            onZoomChange={(delta) => setZoomLevel((z) => Math.max(20, Math.min(600, z + delta)))}
-            onResetZoom={() => setZoomLevel(95)}
+            onZoomChange={handleZoomChange}
+            onResetZoom={handleResetZoom}
             coords={coords}
             onUndo={undo}
             onRedo={redo}
@@ -3472,7 +3487,8 @@ export default function App() {
             bgImageLocked={Boolean(currentPage.bgImageLocked)}
             onToggleBgImageLock={handleToggleBgImageLock}
             onToggleEntityLock={handleToggleEntityLock}
-            onZoomChange={(delta) => setZoomLevel((z) => Math.max(20, Math.min(600, z + delta)))}
+            onZoomChange={handleZoomChange}
+            onSetZoom={handleSetZoom}
             isMobileMode={isMobileMode}
             hiddenLayers={new Set(layers.filter((l) => !l.visible).map((l) => l.id))}
             cursorPos={coords}
@@ -3501,7 +3517,8 @@ export default function App() {
               onToggleOrtho={() => setOrthoMode((prev) => !prev)}
               gridSnapEnabled={gridSnapEnabled}
               onToggleGridSnap={() => setGridSnapEnabled((prev) => !prev)}
-              onResetZoom={() => setZoomLevel(95)}
+              onResetZoom={handleResetZoom}
+              onZoomChange={handleZoomChange}
               zoomLevel={zoomLevel}
               hasBgImage={Boolean(currentPage.bgImage)}
               bgImageLocked={Boolean(currentPage.bgImageLocked)}
@@ -3921,6 +3938,9 @@ export default function App() {
         paperTheme={paperTheme}
         onChangePaperTheme={setPaperTheme}
         saveStatus={saveStatus}
+        zoomLevel={zoomLevel}
+        onZoomChange={handleZoomChange}
+        onResetZoom={handleResetZoom}
       />
 
       {/* Technical Keyboard Shortcuts Cheat Sheet Modal */}

@@ -23,6 +23,9 @@ import {
   Unlock,
   CheckCircle2,
   Trash2,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
 
@@ -53,6 +56,9 @@ interface MobileMenuDrawerProps {
   paperTheme: 'white' | 'blueprint' | 'dark' | 'cream';
   onChangePaperTheme: (theme: 'white' | 'blueprint' | 'dark' | 'cream') => void;
   saveStatus: string;
+  zoomLevel?: number;
+  onZoomChange?: (delta: number) => void;
+  onResetZoom?: () => void;
 }
 
 export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
@@ -82,6 +88,9 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
   paperTheme,
   onChangePaperTheme,
   saveStatus,
+  zoomLevel,
+  onZoomChange,
+  onResetZoom,
 }) => {
   if (!isOpen) return null;
 
@@ -315,6 +324,59 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Zoom & Viewport Scale */}
+          {zoomLevel !== undefined && onZoomChange && onResetZoom && (
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-neutral-400 mb-2">
+                <span>Zoom de Lámina</span>
+                <span className="text-sky-400 font-bold text-xs">{zoomLevel}%</span>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5 mb-2">
+                {[
+                  { label: '50%', val: -zoomLevel + 50 },
+                  { label: '100%', val: -zoomLevel + 100 },
+                  { label: '150%', val: -zoomLevel + 150 },
+                  { label: '200%', val: -zoomLevel + 200 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => onZoomChange(preset.val)}
+                    className={`py-1.5 px-1 rounded-lg text-xs font-mono font-semibold border transition ${
+                      Math.abs(zoomLevel - parseInt(preset.label)) < 5
+                        ? 'bg-sky-600/30 border-sky-400 text-sky-200'
+                        : 'bg-[#22242c] border-[#333742] text-neutral-300 hover:text-white'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onZoomChange(-15)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-[#22242c] hover:bg-[#2b2e38] border border-[#333742] text-neutral-200 active:scale-95 transition text-xs font-semibold"
+                >
+                  <ZoomOut className="w-4 h-4 text-sky-400" />
+                  <span>Alejar</span>
+                </button>
+                <button
+                  onClick={onResetZoom}
+                  className="py-2 px-3 rounded-lg bg-[#22242c] hover:bg-[#2b2e38] border border-[#333742] text-neutral-200 active:scale-95 transition text-xs font-semibold"
+                  title="Ajustar al 100%"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onZoomChange(15)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-[#22242c] hover:bg-[#2b2e38] border border-[#333742] text-neutral-200 active:scale-95 transition text-xs font-semibold"
+                >
+                  <ZoomIn className="w-4 h-4 text-sky-400" />
+                  <span>Acercar</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Paper Theme */}
           <div>

@@ -13,6 +13,8 @@ import {
   FileText,
   Sliders,
   Palette,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { EntityStyle } from '../cad/types.ts';
 
@@ -24,6 +26,7 @@ interface MobileControlBarProps {
   gridSnapEnabled: boolean;
   onToggleGridSnap: () => void;
   onResetZoom: () => void;
+  onZoomChange: (delta: number) => void;
   zoomLevel: number;
   hasBgImage: boolean;
   bgImageLocked: boolean;
@@ -40,6 +43,7 @@ export const MobileControlBar: React.FC<MobileControlBarProps> = ({
   gridSnapEnabled,
   onToggleGridSnap,
   onResetZoom,
+  onZoomChange,
   zoomLevel,
   hasBgImage,
   bgImageLocked,
@@ -164,15 +168,32 @@ export const MobileControlBar: React.FC<MobileControlBarProps> = ({
           <span>{currentStyle.width}mm</span>
         </button>
 
-        {/* Reset Zoom */}
-        <button
-          onClick={onResetZoom}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium bg-[#22242c] text-neutral-300 hover:text-white"
-          title="Ajustar lámina al 100%"
-        >
-          <Maximize2 className="w-3.5 h-3.5" />
-          <span>{zoomLevel}%</span>
-        </button>
+        {/* Mobile Zoom Stepper Controls: [-] ZoomOut, [zoomLevel% / Reset], [+] ZoomIn */}
+        <div className="flex items-center bg-[#22242c] rounded-full p-0.5 border border-[#2d313d] shadow-sm">
+          <button
+            onClick={() => onZoomChange(-15)}
+            className="p-1.5 rounded-full text-neutral-300 hover:text-white active:bg-sky-600/40 active:scale-95 transition"
+            title="Alejar lámina (Zoom -)"
+            aria-label="Alejar lámina"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onResetZoom}
+            className="px-1.5 py-0.5 text-xs font-mono font-bold text-neutral-200 hover:text-sky-300 active:scale-95 transition"
+            title="Ajustar zoom al 100%"
+          >
+            {zoomLevel}%
+          </button>
+          <button
+            onClick={() => onZoomChange(15)}
+            className="p-1.5 rounded-full text-neutral-300 hover:text-white active:bg-sky-600/40 active:scale-95 transition"
+            title="Acercar lámina (Zoom +)"
+            aria-label="Acercar lámina"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         {/* PDF Base Lock / Unlock Toggle when background PDF is present */}
         {hasBgImage && (

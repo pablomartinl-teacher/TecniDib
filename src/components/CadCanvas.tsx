@@ -25,6 +25,7 @@ import {
   getEntityPolygonVertices,
   calculateIsoDimension,
 } from '../cad/geometry.ts';
+import { calculatePinchZoom } from '../cad/mobileUtils.ts';
 import { Lock, Unlock, FileText } from 'lucide-react';
 
 interface CadCanvasProps {
@@ -48,6 +49,7 @@ interface CadCanvasProps {
   onToggleBgImageLock?: () => void;
   onToggleEntityLock?: (id: number) => void;
   onZoomChange?: (delta: number) => void;
+  onSetZoom?: (zoom: number) => void;
   isMobileMode?: boolean;
   hiddenLayers?: Set<string>;
   cursorPos?: Point2D;
@@ -88,6 +90,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   onToggleBgImageLock,
   onToggleEntityLock,
   onZoomChange,
+  onSetZoom,
   isMobileMode = false,
   hiddenLayers,
   cursorPos = { x: 0, y: 0 },
@@ -110,17 +113,38 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Keep references to prevent touch listener tear-down during state changes
+  const onZoomChangeRef = useRef(onZoomChange);
+  const onSetZoomRef = useRef(onSetZoom);
+  const zoomLevelRef = useRef(zoomLevel);
+
+  useEffect(() => {
+    onZoomChangeRef.current = onZoomChange;
+    onSetZoomRef.current = onSetZoom;
+    zoomLevelRef.current = zoomLevel;
+  }, [onZoomChange, onSetZoom, zoomLevel]);
+
+  const pinchStateRef = useRef<{
+    isActive: boolean;
+    initialDist: number;
+    startZoom: number;
+    lastMidX: number;
+    lastMidY: number;
+  }>({
+    isActive: false,
+    initialDist: 0,
+    startZoom: 95,
+    lastMidX: 0,
+    lastMidY: 0,
+  });
+
   // Multi-touch gestures (two-finger pan & pinch zoom) for mobile touchscreens
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    let initialDist = 0;
-    let lastMidX = 0;
-    let lastMidY = 0;
-
     const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
+      if (e.touches.length >= 2) {
         if (longPressTimerRef.current) {
           clearTimeout(longPressTimerRef.current);
           longPressTimerRef.current = null;
@@ -128,49 +152,93 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({
         touchStartPosRef.current = null;
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        initialDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-        lastMidX = (t1.clientX + t2.clientX) / 2;
-        lastMidY = (t1.clientY + t2.clientY) / 2;
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        pinchStateRef.current = {
+          isActive: true,
+          initialDist: dist,
+          startZoom: zoomLevelRef.current,
+          lastMidX: (t1.clientX + t2.clientX) / 2,
+          lastMidY: (t1.clientY + t2.clientY) / 2,
+        };
       }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        e.preventDefault();
+      if (e.touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const curDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
         const midX = (t1.clientX + t2.clientX) / 2;
         const midY = (t1.clientY + t2.clientY) / 2;
 
-        // Pan container
-        const dx = midX - lastMidX;
-        const dy = midY - lastMidY;
+        const state = pinchStateRef.current;
+        if (!state.isActive || state.initialDist <= 5) {
+          state.isActive = true;
+          state.initialDist = curDist;
+          state.startZoom = zoomLevelRef.current;
+          state.lastMidX = midX;
+          state.lastMidY = midY;
+          return;
+        }
+
+        // Two-finger pan
+        const dx = midX - state.lastMidX;
+        const dy = midY - state.lastMidY;
         container.scrollLeft -= dx;
         container.scrollTop -= dy;
-        lastMidX = midX;
-        lastMidY = midY;
+        state.lastMidX = midX;
+        state.lastMidY = midY;
 
-        // Pinch zoom
-        if (initialDist > 10 && onZoomChange) {
-          const delta = curDist - initialDist;
-          if (Math.abs(delta) > 12) {
-            onZoomChange(delta > 0 ? 5 : -5);
-            initialDist = curDist;
+        // Smooth continuous pinch-to-zoom calculation
+        const newZoom = calculatePinchZoom(state.initialDist, curDist, state.startZoom, 20, 600);
+        if (onSetZoomRef.current) {
+          onSetZoomRef.current(newZoom);
+        } else if (onZoomChangeRef.current) {
+          const delta = newZoom - zoomLevelRef.current;
+          if (Math.abs(delta) >= 2) {
+            onZoomChangeRef.current(delta);
           }
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchStateRef.current.isActive = false;
+        pinchStateRef.current.initialDist = 0;
+      }
+    };
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 10 : -10;
+        if (onZoomChangeRef.current) {
+          onZoomChangeRef.current(delta);
         }
       }
     };
 
     container.addEventListener('touchstart', handleTouchStart, { passive: true });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+      container.removeEventListener('wheel', handleWheel);
     };
-  }, [onZoomChange]);
+  }, []);
 
   const handlePointerDownInternal = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (pinchStateRef.current.isActive) {
+      return;
+    }
     if (e.pointerType === 'touch') {
       touchStartPosRef.current = { x: e.clientX, y: e.clientY };
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);

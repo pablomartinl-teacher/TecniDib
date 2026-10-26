@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { SheetSize } from '../cad/types.ts';
 
@@ -31,6 +33,9 @@ interface MobileTopBarProps {
   onToggleMobileMode: () => void;
   onOpenMenu: () => void;
   saveStatus: string;
+  zoomLevel?: number;
+  onZoomChange?: (delta: number) => void;
+  onResetZoom?: () => void;
 }
 
 export const MobileTopBar: React.FC<MobileTopBarProps> = ({
@@ -48,6 +53,9 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   onToggleMobileMode,
   onOpenMenu,
   saveStatus,
+  zoomLevel,
+  onZoomChange,
+  onResetZoom,
 }) => {
   return (
     <header className="h-12 bg-[#16171d] border-b border-[#2d313d] flex items-center justify-between px-2.5 z-30 select-none text-white shrink-0">
@@ -91,19 +99,48 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
         </div>
       </div>
 
-      {/* Center: Mobile Mode toggle badge */}
-      <button
-        onClick={onToggleMobileMode}
-        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold border transition ${
-          isMobileMode
-            ? 'bg-sky-600/30 text-sky-300 border-sky-400 shadow-sm'
-            : 'bg-[#22242c] text-neutral-400 border-[#333744] hover:text-white'
-        }`}
-        title="Modo móvil activo (toca para cambiar a vista de escritorio)"
-      >
-        <Smartphone className="w-3.5 h-3.5" />
-        <span className="text-[11px]">Móvil</span>
-      </button>
+      {/* Center: Mobile Mode toggle badge & Quick Zoom Stepper */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={onToggleMobileMode}
+          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold border transition ${
+            isMobileMode
+              ? 'bg-sky-600/30 text-sky-300 border-sky-400 shadow-sm'
+              : 'bg-[#22242c] text-neutral-400 border-[#333744] hover:text-white'
+          }`}
+          title="Modo móvil activo (toca para cambiar a vista de escritorio)"
+        >
+          <Smartphone className="w-3.5 h-3.5" />
+          <span className="text-[11px]">Móvil</span>
+        </button>
+
+        {/* Quick Zoom Stepper */}
+        {zoomLevel !== undefined && onZoomChange && onResetZoom && (
+          <div className="flex items-center bg-[#13141a] rounded-lg border border-[#2d313d] p-0.5 gap-0.5 text-xs">
+            <button
+              onClick={() => onZoomChange(-15)}
+              className="p-1 rounded text-neutral-400 hover:text-white active:scale-95 transition"
+              title="Alejar lámina (Zoom -)"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onResetZoom}
+              className="font-mono text-[11px] px-1 text-neutral-300 hover:text-sky-300 font-bold transition"
+              title="Ajustar zoom al 100%"
+            >
+              {zoomLevel}%
+            </button>
+            <button
+              onClick={() => onZoomChange(15)}
+              className="p-1 rounded text-neutral-400 hover:text-white active:scale-95 transition"
+              title="Acercar lámina (Zoom +)"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Right: Undo, Redo, Menu Drawer Button */}
       <div className="flex items-center gap-1">
